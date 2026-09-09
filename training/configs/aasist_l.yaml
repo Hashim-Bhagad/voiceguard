@@ -1,0 +1,46 @@
+# Official ClovaAI AASIST-L adaptation for Indic bona-fide vs spoof speech.
+seed: 42
+sample_rate: 16000
+
+model:
+  upstream_dir: third_party/aasist
+  window_samples: 64600  # official AASIST-L input length at 16 kHz (~4.04 s)
+  architecture:
+    architecture: AASIST
+    nb_samp: 64600
+    first_conv: 128
+    filts: [70, [1, 32], [32, 32], [32, 24], [24, 24]]
+    gat_dims: [24, 32]
+    pool_ratios: [0.4, 0.5, 0.7, 0.5]
+    temperatures: [2.0, 2.0, 100.0, 100.0]
+
+data:
+  metadata_csv: data/metadata.csv
+  train_split: train
+  dev_split: dev
+  test_split: test
+  batch_size: 12
+  num_workers: 2
+
+# Apply every stochastic transform independently of label.
+augmentation:
+  narrowband_prob: 0.40
+  noise_prob: 0.40
+  noise_dir: data/augmentation/musan
+  rir_prob: 0.20
+  rir_dir: data/augmentation/rirs
+  frequency_mask: false
+
+train:
+  require_cuda: true
+  epochs: 30
+  patience: 6
+  lr: 0.0001
+  min_lr: 0.000005
+  betas: [0.9, 0.999]
+  amsgrad: false
+  weight_decay: 0.0001
+  class_weights: [1.0, 1.0]
+  grad_clip_norm: 5.0
+  mixed_precision: true
+  out_dir: outputs/aasist_l_indic
