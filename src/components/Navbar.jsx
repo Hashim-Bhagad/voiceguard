@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import './Navbar.css'
+
 
 const SCROLL_THRESHOLD = 80
 
-const LINKS = ['How it works', 'Dashboard', 'Docs']
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -26,15 +27,13 @@ export default function Navbar() {
       </a>
 
       <nav className="navbar-links">
-        {LINKS.map((label) => (
-          <a key={label} href="#">
-            {label}
-          </a>
-        ))}
-        <a className="navbar-cta" href="#demo">
-          Request demo
-        </a>
-      </nav>
+  <a href="#how-it-works">How it works</a>
+  <Link to="/dashboard">Dashboard</Link>
+  <a href="#docs">Docs</a>
+  <a className="navbar-cta" href="#demo">
+    Request demo
+  </a>
+</nav>
     </header>
   )
 }
