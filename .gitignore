@@ -1,0 +1,21 @@
+# Local credentials and environment-specific configuration
+.env
+.env.*
+!.env.example
+
+# Training artifacts and downloaded data
+training/data/
+training/weights/
+training/outputs/
+training/third_party/
+
+# Exported model artifacts
+backend/models/*.onnx
+backend/models/*.pt
+backend/models/*.pth
+
+# Python caches and local virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
