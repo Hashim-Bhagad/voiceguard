@@ -200,3 +200,12 @@
 .dash-nav a:hover {
   color: #23e5c5;
 }
+
+.dash-empty-hint {
+  color: #64748b;
+  font-size: 0.875rem;
+  margin-top: 1.5rem;
+}
+.dash-empty-hint--error {
+  color: #f2545b;
+}

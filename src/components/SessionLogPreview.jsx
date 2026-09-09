@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { useAnalysis } from '../lib/useAnalysis'
 import './SessionLogPreview.css'
 
 gsap.registerPlugin(ScrollTrigger)
@@ -24,12 +23,8 @@ function verdictFor(risk) {
 }
 
 export default function SessionLogPreview() {
-  const analysis = useAnalysis()
 
-  const rows = [
-    { time: 'Just now', caller: 'Current session', risk: analysis?.final_risk_score ?? 0 },
-    ...MOCK_ROWS,
-  ]
+  const rows = MOCK_ROWS
 
   const sectionRef = useRef(null)
   const trackRef = useRef(null)

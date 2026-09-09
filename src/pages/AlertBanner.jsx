@@ -1,4 +1,4 @@
-import { useAnalysis } from '../lib/useAnalysis'
+import { useAnalysis } from '../lib/AnalysisContext'
 import './Dashboard.css'
 
 function pct(x) {
@@ -12,8 +12,21 @@ function verdictFor(risk) {
 }
 
 export default function AlertBanner() {
-  const a = useAnalysis()
-  const finalRisk = pct(a.final_risk_score)
+  const { data } = useAnalysis()
+
+  if (!data) {
+    return (
+      <div className="dash-page">
+        <h1 className="dash-title">Alert</h1>
+        <p className="dash-subtitle">Fired when the fused risk score crosses a threshold</p>
+        <p className="dash-empty-hint">
+          No active call. Go to Live Monitoring and run an analysis first.
+        </p>
+      </div>
+    )
+  }
+
+  const finalRisk = pct(data.final_risk_score)
   const verdict = verdictFor(finalRisk)
 
   return (
@@ -37,11 +50,11 @@ export default function AlertBanner() {
         </div>
 
         <h3>Transcript</h3>
-        <div className="dash-transcript">{a.transcript}</div>
+        <div className="dash-transcript">{data.transcript}</div>
 
         <h3 style={{ marginTop: 20 }}>Flags</h3>
         <div className="dash-flag-list">
-          {a.flags.map((f) => (
+          {data.flags.map((f) => (
             <span className="dash-flag" key={f}>{f.replaceAll('_', ' ')}</span>
           ))}
         </div>

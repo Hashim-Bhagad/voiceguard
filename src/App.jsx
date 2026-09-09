@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Routes, Route, Link } from 'react-router-dom'
+import { Routes, Route, Link, Outlet } from 'react-router-dom'
 import Loader from './components/Loader'
 import CursorGrid from './components/CursorGrid'
 import Navbar from './components/Navbar'
@@ -13,6 +13,9 @@ import LiveMonitoring from './pages/LiveMonitoring'
 import AlertBanner from './pages/AlertBanner'
 import ChallengeResponse from './pages/ChallengeResponse'
 import SessionLogPage from './pages/SessionLogPage'
+import { AnalysisProvider } from './lib/AnalysisContext'
+import DocsSection from './components/DocsSection'
+import Footer from './components/Footer'
 import './App.css'
 import './pages/Dashboard.css'
 
@@ -28,12 +31,22 @@ function DashNav() {
   )
 }
 
+// Layout route: wraps every /dashboard/* page in ONE AnalysisProvider so
+// they all share the same live call state, and renders DashNav once
+// instead of repeating it on every route like before.
+function DashboardLayout() {
+  return (
+    <AnalysisProvider>
+      <DashNav />
+      <Outlet />
+    </AnalysisProvider>
+  )
+}
+
 function LandingPage() {
   const [loadingDone, setLoadingDone] = useState(false)
   const [phoneState, setPhoneState] = useState('idle')
 
-  // Stable references so ProblemSection's ScrollTrigger effect doesn't
-  // tear down and rebuild every time phoneState itself changes.
   const handlePhoneAnalyzing = useCallback(() => setPhoneState('analyzing'), [])
   const handlePhoneIdle = useCallback(() => setPhoneState('idle'), [])
 
@@ -59,9 +72,8 @@ function LandingPage() {
       <FeatureExplainer />
       <SpecsSection />
       <SessionLogPreview />
-
-      {/* temporary — extra scroll height to test scroll-driven behavior; remove once the next section is built */}
-      <div style={{ height: '80vh' }} aria-hidden="true" />
+      <DocsSection />
+      <Footer />
     </>
   )
 }
@@ -70,42 +82,13 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
-      <Route
-        path="/dashboard"
-        element={
-          <>
-            <DashNav />
-            <LiveMonitoring />
-          </>
-        }
-      />
-      <Route
-        path="/dashboard/alert"
-        element={
-          <>
-            <DashNav />
-            <AlertBanner />
-          </>
-        }
-      />
-      <Route
-        path="/dashboard/challenge"
-        element={
-          <>
-            <DashNav />
-            <ChallengeResponse />
-          </>
-        }
-      />
-      <Route
-        path="/dashboard/log"
-        element={
-          <>
-            <DashNav />
-            <SessionLogPage />
-          </>
-        }
-      />
+
+      <Route path="/dashboard" element={<DashboardLayout />}>
+        <Route index element={<LiveMonitoring />} />
+        <Route path="alert" element={<AlertBanner />} />
+        <Route path="challenge" element={<ChallengeResponse />} />
+        <Route path="log" element={<SessionLogPage />} />
+      </Route>
     </Routes>
   )
 }

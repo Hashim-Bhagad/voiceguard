@@ -1,4 +1,4 @@
-import { useAnalysis } from '../lib/useAnalysis'
+import { useAnalysis } from '../lib/AnalysisContext'
 import './Dashboard.css'
 
 const MOCK_HISTORY = [
@@ -18,11 +18,17 @@ function verdictFor(risk) {
 }
 
 export default function SessionLogPage() {
-  const a = useAnalysis()
-  const rows = [
-    { time: 'Just now', caller: 'Current session', risk: Math.round((a.final_risk_score ?? 0) * 100) },
-    ...MOCK_HISTORY,
-  ]
+  const { data } = useAnalysis()
+
+  // Only prepend a "current session" row once a real analysis has actually
+  // run — otherwise every visitor sees a fake 0% "Current session" entry
+  // sitting at the top before they've uploaded or recorded anything.
+  const rows = data
+    ? [
+        { time: 'Just now', caller: 'Current session', risk: Math.round(data.final_risk_score * 100) },
+        ...MOCK_HISTORY,
+      ]
+    : MOCK_HISTORY
 
   return (
     <div className="dash-page">

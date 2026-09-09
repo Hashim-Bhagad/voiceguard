@@ -1,12 +1,27 @@
 import { useState } from 'react'
-import { useAnalysis } from '../lib/useAnalysis'
+import { useAnalysis } from '../lib/AnalysisContext'
 import './Dashboard.css'
 
-const CHALLENGE_CODE = '7 4 1 9'
+function generateCode() {
+  return Array.from({ length: 4 }, () => Math.floor(Math.random() * 10)).join(' ')
+}
 
 export default function ChallengeResponse() {
-  const a = useAnalysis()
+  const { data } = useAnalysis()
+  const [code] = useState(generateCode) // generated once per page visit, not on every render
   const [status, setStatus] = useState('listening') // listening | verifying | pass | fail
+
+  if (!data) {
+    return (
+      <div className="dash-page">
+        <h1 className="dash-title">Challenge-Response</h1>
+        <p className="dash-subtitle">Live verification triggered by elevated risk</p>
+        <p className="dash-empty-hint">
+          No active call. Go to Live Monitoring and run an analysis first.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="dash-page">
@@ -15,7 +30,7 @@ export default function ChallengeResponse() {
 
       <div className="dash-card" style={{ textAlign: 'center' }}>
         <h3>Generated Code</h3>
-        <div className="dash-challenge-code">{CHALLENGE_CODE}</div>
+        <div className="dash-challenge-code">{code}</div>
 
         {status === 'listening' && (
           <span className="dash-status-pill" style={{ justifyContent: 'center' }}>

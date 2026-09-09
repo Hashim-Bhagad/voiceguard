@@ -110,7 +110,7 @@ export default function FeatureExplainer() {
   }, [])
 
   return (
-    <section className="feature-explainer" ref={sectionRef}>
+    <section id="how-it-works" className="feature-explainer" ref={sectionRef}>
       <div className="feature-pin" ref={pinRef}>
         <div className="feature-slot feature-slot--left">
           {STATES.map((s, i) =>
