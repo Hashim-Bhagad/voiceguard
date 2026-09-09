@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:19006"
     retain_raw_audio: bool = False
     log_level: str = "info"
+    firebase_credentials: str = "credentials/serviceAccountKey.json"
+    groq_api_key: str | None = None
 
 
 @lru_cache

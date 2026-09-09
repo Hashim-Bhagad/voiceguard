@@ -2,7 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 import numpy as np
 import onnxruntime as ort
@@ -16,12 +24,27 @@ def main() -> None:
     parser.add_argument("--ckpt", required=True)
     parser.add_argument("--out", default="aasist-l-indic-v0.1.onnx")
     parser.add_argument("--opset", type=int, default=17)
+    parser.add_argument("--config", default="configs/aasist_l.yaml")
     args = parser.parse_args()
 
+    import yaml
     blob = torch.load(args.ckpt, map_location="cpu")
-    cfg = blob["config"]
-    model = build_model(cfg)
-    model.load_state_dict(blob["model"], strict=True)
+    if isinstance(blob, dict) and "config" in blob and "model" in blob:
+        cfg = blob["config"]
+        model = build_model(cfg)
+        model.load_state_dict(blob["model"], strict=True)
+    else:
+        cfg_path = Path(args.config)
+        if not cfg_path.is_file():
+            cfg_path = Path(__file__).parent / "configs" / "aasist_l.yaml"
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        # Ensure upstream_dir is resolved relative to training/
+        if not Path(cfg["model"]["upstream_dir"]).is_dir():
+            cfg["model"]["upstream_dir"] = str(Path(__file__).parent / "third_party" / "aasist")
+        model = build_model(cfg)
+        missing, unexpected = model.load_pretrained(args.ckpt)
+        print(f"Loaded pretrained weights. Missing keys: {len(missing)}, Unexpected keys: {len(unexpected)}")
     model.eval()
     export_model = SpoofLogitExport(model).eval()
     samples = int(cfg["model"]["window_samples"])

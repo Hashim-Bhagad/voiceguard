@@ -1,8 +1,9 @@
 import time
+import uuid
 import numpy as np
 from fastapi import APIRouter, UploadFile, File, Form
-from app.schemas.contracts import VerifyResponse, POLICY_DEFAULTS
-from app.services import model_registry, prosody, linguistic, fusion
+from app.schemas.contracts import VerifyResponse
+from app.services import model_registry, prosody, linguistic, fusion, stt, audio_utils, firestore_service
 from app.core.config import get_settings
 
 router = APIRouter()
@@ -14,29 +15,98 @@ async def verify_file(
     policy_profile: str = Form("standard"),
     lang_hint: str = Form("auto"),
     transcript: str = Form(""),
+    session_id: str = Form(""),
+    caller_id: str = Form("Web Client"),
 ):
-    raw = await file.read()
-    # Assume 16k mono PCM16 or wav; best-effort decode: try PCM16 else zeros.
-    try:
-        import io, wave
-        with wave.open(io.BytesIO(raw), "rb") as w:
-            n = w.getnframes()
-            pcm = np.frombuffer(w.readframes(n), dtype=np.int16).astype(np.float32) / 32768.0
-    except Exception:
-        # raw pcm16 fallback
-        pcm = np.frombuffer(raw[:32000 * 2], dtype=np.int16).astype(np.float32) / 32768.0
-    window = pcm[: 16000 * 2] if pcm.size else np.zeros(0, dtype=np.float32)
+    raw_bytes = await file.read()
+    session_id = session_id.strip() or f"call_{uuid.uuid4().hex[:8]}"
 
-    spoof = model_registry.score_spoof(window)
-    ling, _ = linguistic.score_text(transcript)
-    ctx = 0.6 if policy_profile == "high-value-txn" else 0.2
-    final, state, action = fusion.fuse("batch", spoof, ling, None, ctx, prosody.prosody_flag(window) == "flat", policy_profile)
+    # 1. Decode audio to 16kHz mono float32
+    audio = audio_utils.decode_audio_to_16k_mono(raw_bytes)
+    has_audio = audio.size > 0
+
+    # 2. Transcribe via Groq Whisper if transcript was not manually supplied
+    final_transcript = transcript.strip()
+    if not final_transcript and raw_bytes:
+        final_transcript = stt.transcribe_audio(raw_bytes, filename=file.filename or "input.wav", lang_hint=lang_hint)
+
+    # 3. Acoustic Spoof Detection via AASIST-L ONNX
+    spoof_score = float(model_registry.score_spoof(audio)) if has_audio else 0.0
+
+    # 4. Multilingual Linguistic Urgency Analysis
+    ling_score, matched_flags = linguistic.score_text(final_transcript)
+
+    # 5. Prosody & Quality
+    prosody_is_flat = prosody.prosody_flag(audio) == "flat" if has_audio else False
+    quality = "ok" if has_audio and len(audio) >= 8000 else "insufficient"
+
+    # 6. Context Risk & Fusion
+    ctx_risk = 0.6 if policy_profile == "high-value-txn" else 0.2
+    final_risk, state, action = fusion.fuse(
+        session_id=session_id,
+        spoof=spoof_score,
+        linguistic=ling_score,
+        speaker_match=None,
+        context_risk=ctx_risk,
+        prosody_flat=prosody_is_flat,
+        policy_profile=policy_profile,
+    )
+
+    if not has_audio:
+        state = "insufficient"
+        action = "continue"
+
+    challenge_triggered = (action == "challenge") or (final_risk >= 0.50)
     s = get_settings()
+
+    # 7. Persist to Firestore
+    session_record = {
+        "session_id": session_id,
+        "caller": caller_id,
+        "final_risk": final_risk,
+        "state": state,
+        "action": action,
+        "spoof_score": spoof_score,
+        "linguistic_score": ling_score,
+        "transcript": final_transcript,
+        "flags": matched_flags,
+        "timestamp": int(time.time() * 1000),
+        "policy_profile": policy_profile,
+    }
+    firestore_service.save_session(session_record)
+
+    if state == "high" or action in ("hold", "challenge"):
+        firestore_service.save_alert({
+            "session_id": session_id,
+            "caller": caller_id,
+            "final_risk": final_risk,
+            "state": state,
+            "action": action,
+            "reason": f"High risk detected ({final_risk*100:.1f}%). Triggering step-up verification.",
+            "flags": matched_flags,
+            "timestamp": int(time.time() * 1000),
+        })
+
     return VerifyResponse(
-        seq=0, server_ts=int(time.time() * 1000), vad=True,
-        quality="ok" if window.size else "insufficient",
-        spoof_score=spoof, linguistic_score=ling, transcript_delta=transcript,
-        context_risk=ctx, final_risk=final, state=state if window.size else "insufficient",
-        action=action, model_ver=model_registry.model_version(), policy_ver=s.policy_ver,
-        session_id="batch", segments=[],
+        seq=0,
+        server_ts=int(time.time() * 1000),
+        vad=has_audio,
+        quality=quality,
+        spoof_score=spoof_score,
+        acoustic_risk_score=spoof_score,
+        linguistic_score=ling_score,
+        linguistic_risk_score=ling_score,
+        transcript_delta=final_transcript,
+        transcript=final_transcript,
+        context_risk=ctx_risk,
+        final_risk=final_risk,
+        final_risk_score=final_risk,
+        state=state,
+        action=action,
+        model_ver=model_registry.model_version(),
+        policy_ver=s.policy_ver,
+        session_id=session_id,
+        segments=[],
+        flags=matched_flags,
+        challenge_triggered=challenge_triggered,
     )

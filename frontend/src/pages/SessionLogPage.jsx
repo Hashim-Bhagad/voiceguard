@@ -20,9 +20,7 @@ function verdictFor(risk) {
 export default function SessionLogPage() {
   const { data } = useAnalysis()
 
-  // Only prepend a "current session" row once a real analysis has actually
-  // run — otherwise every visitor sees a fake 0% "Current session" entry
-  // sitting at the top before they've uploaded or recorded anything.
+  // Prepend current session once an analysis has actually run
   const rows = data
     ? [
         { time: 'Just now', caller: 'Current session', risk: Math.round(data.final_risk_score * 100) },

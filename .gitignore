@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+backend/credentials/
+*serviceAccount*.json
 
 # Training artifacts and downloaded data
 training/data/
@@ -11,8 +13,10 @@ training/third_party/
 
 # Exported model artifacts
 backend/models/*.onnx
+backend/models/*.onnx.data
 backend/models/*.pt
 backend/models/*.pth
+backend/models/
 
 # Python caches and local virtual environments
 __pycache__/

@@ -45,6 +45,12 @@ class Telemetry(BaseModel):
 class VerifyResponse(Telemetry):
     session_id: str = ""
     segments: list[dict] = []
+    flags: list[str] = []
+    challenge_triggered: bool = False
+    acoustic_risk_score: float = 0.0
+    linguistic_risk_score: float = 0.0
+    final_risk_score: float = 0.0
+    transcript: str = ""
 
 
 class EnrollRequest(BaseModel):
