@@ -1,0 +1,29 @@
+.stage {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  align-items: start;
+  gap: 24px;
+}
+
+.stage-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stage-phone {
+  position: sticky;
+  top: 96px;
+  height: fit-content;
+}
+
+@media (max-width: 980px) {
+  .stage {
+    display: block;
+  }
+
+  .stage-phone {
+    position: static;
+    margin: 0 auto;
+  }
+}
