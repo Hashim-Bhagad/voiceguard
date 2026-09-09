@@ -35,7 +35,7 @@ export default function SessionLogPage() {
       <h1 className="dash-title">Session Log</h1>
       <p className="dash-subtitle">Full call history</p>
 
-      <div className="dash-card">
+      <div className="dash-card dash-table-scroll" tabIndex={0} role="region" aria-label="Session history, scroll horizontally for all columns">
         <table className="dash-table">
           <thead>
             <tr>

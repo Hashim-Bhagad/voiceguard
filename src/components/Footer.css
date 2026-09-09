@@ -193,7 +193,7 @@
 }
 
 .footer-fine-print {
-  color: #5c706c;
+  color: var(--text);
 }
 
 /* ---------- demo modal ---------- */
@@ -206,12 +206,15 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
+  box-sizing: border-box;
+  overflow-y: auto;
   background: rgba(2, 4, 4, 0.72);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
 
 .footer-modal {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -222,9 +225,16 @@
   background: #0a0f0e;
   border: 1px solid rgba(35, 229, 197, 0.24);
   border-radius: 4px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  box-shadow: var(--shadow);
 }
 
+.footer-modal .demo-form-label { margin-bottom: -8px; }
+
 .footer-modal h3 {
+  padding-right: 24px;
+  line-height: 1.4;
   margin: 0 0 4px;
   font-family: var(--heading);
   font-weight: 600;
@@ -233,6 +243,9 @@
 }
 
 .footer-modal input {
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
   padding: 10px 12px;
   background: transparent;
   border: 1px solid rgba(159, 176, 173, 0.28);
@@ -243,7 +256,7 @@
 }
 
 .footer-modal input::placeholder {
-  color: #5c706c;
+  color: var(--text);
 }
 
 .footer-modal input:focus-visible {

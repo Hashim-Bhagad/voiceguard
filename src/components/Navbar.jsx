@@ -11,6 +11,19 @@ export default function Navbar() {
   const [showDemo, setShowDemo] = useState(false)
 
   useEffect(() => {
+    if (!showDemo) return
+    const trigger = document.activeElement
+    const dismiss = (event) => {
+      if (event.key === 'Escape') setShowDemo(false)
+    }
+    document.addEventListener('keydown', dismiss)
+    return () => {
+      document.removeEventListener('keydown', dismiss)
+      trigger?.focus()
+    }
+  }, [showDemo])
+
+  useEffect(() => {
     function handleScroll() {
       const next = window.scrollY > SCROLL_THRESHOLD
       setScrolled((prev) => (prev === next ? prev : next))
@@ -38,6 +51,7 @@ export default function Navbar() {
 </nav>
       {showDemo && (
         <div
+          className="navbar-modal-backdrop"
           onClick={() => setShowDemo(false)}
           style={{
             position: 'fixed',
@@ -50,6 +64,9 @@ export default function Navbar() {
           }}
         >
           <form
+            className="navbar-modal"
+            role="dialog"
+            aria-labelledby="navbar-demo-title"
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => {
               e.preventDefault()
@@ -63,8 +80,12 @@ export default function Navbar() {
               maxWidth: '360px',
             }}
           >
-            <h3 style={{ color: '#f1f5f9', marginBottom: '16px' }}>Request a demo</h3>
+            <button type="button" className="demo-modal-close" aria-label="Close demo request" onClick={() => setShowDemo(false)}>×</button>
+            <h3 id="navbar-demo-title" style={{ color: '#f1f5f9', marginBottom: '16px' }}>Request a demo</h3>
+            <label className="demo-form-label" htmlFor="navbar-demo-name">Name</label>
             <input
+              id="navbar-demo-name"
+              autoComplete="name"
               required
               placeholder="Name"
               style={{
@@ -77,7 +98,10 @@ export default function Navbar() {
                 color: '#e2e8f0',
               }}
             />
+            <label className="demo-form-label" htmlFor="navbar-demo-email">Work email</label>
             <input
+              id="navbar-demo-email"
+              autoComplete="email"
               required
               type="email"
               placeholder="Work email"

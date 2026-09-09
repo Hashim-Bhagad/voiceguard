@@ -52,7 +52,12 @@
   color: var(--vg-accent);
 }
 
-.navbar-links a.navbar-cta {
+.navbar-links .navbar-cta {
+  font: inherit;
+  font-size: 14px;
+  min-height: 44px;
+  border: 0;
+  cursor: pointer;
   padding: 9px 18px;
   border-radius: 2px;
   background: var(--vg-accent);
@@ -62,8 +67,8 @@
     transform 160ms ease;
 }
 
-.navbar-links a.navbar-cta:hover,
-.navbar-links a.navbar-cta:focus-visible {
+.navbar-links .navbar-cta:hover:not(:disabled),
+.navbar-links .navbar-cta:focus-visible {
   background: #59f2d8;
   box-shadow: 0 0 20px rgba(35, 229, 197, 0.45);
   transform: translateY(-1px);
@@ -75,11 +80,45 @@
   }
 
   .navbar-links {
-    gap: 16px;
+    gap: 12px;
+    overflow-x: auto;
+    min-width: 0;
+    padding: 4px;
   }
 
-  .navbar-links a:not(.navbar-cta) {
-    display: none;
+  .navbar { gap: 16px; }
+  .navbar-wordmark { flex-shrink: 0; font-size: 12px; letter-spacing: 2px; }
+  .navbar-links > * { flex-shrink: 0; white-space: nowrap; }
+  .navbar-links a { font-size: 12px; padding-block: 10px; }
+  .navbar-links .navbar-cta { font-size: 12px; padding-inline: 12px; }
+}
+
+.navbar:has(.navbar-modal-backdrop) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* A transitioning backdrop filter makes the header contain fixed children. */
+  transition: none;
+}
+.navbar-modal-backdrop { padding: 20px; box-sizing: border-box; overflow-y: auto; }
+.navbar-modal {
+  position: relative;
+  box-sizing: border-box;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+}
+.navbar-modal h3 { margin-top: 0; padding-right: 24px; line-height: 1.4; }
+.navbar-modal input { box-sizing: border-box; min-height: 44px; border-radius: 2px; }
+.navbar-modal button[type='submit'] {
+  min-height: 44px;
+  cursor: pointer;
+  transition: box-shadow 160ms ease;
+}
+.navbar-modal button[type='submit']:hover { box-shadow: var(--shadow); }
+
+@media (max-height: 480px) {
+  .navbar-modal-backdrop {
+    align-items: flex-start !important;
   }
 }
 

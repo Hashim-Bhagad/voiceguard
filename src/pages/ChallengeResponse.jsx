@@ -49,7 +49,7 @@ export default function ChallengeResponse() {
           <span className="dash-badge tone-high" style={{ fontSize: 14 }}>Fail — synthetic response detected</span>
         )}
 
-        <div style={{ marginTop: 30, display: 'flex', gap: 12, justifyContent: 'center' }}>
+        <div className="dash-actions dash-actions--challenge">
           <button onClick={() => setStatus('listening')}>Reset</button>
           <button onClick={() => setStatus('verifying')}>Simulate: Verifying</button>
           <button onClick={() => setStatus('pass')}>Simulate: Pass</button>
