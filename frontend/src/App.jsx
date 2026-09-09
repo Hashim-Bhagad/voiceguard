@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Routes, Route, Link, Outlet } from 'react-router-dom'
+import { Routes, Route, Link, NavLink, Outlet } from 'react-router-dom'
 import Loader from './components/Loader'
 import CursorGrid from './components/CursorGrid'
 import Navbar from './components/Navbar'
@@ -21,11 +21,11 @@ import './pages/Dashboard.css'
 
 function DashNav() {
   return (
-    <nav className="dash-nav">
-      <Link to="/dashboard">Live Monitoring</Link>
-      <Link to="/dashboard/alert">Alert</Link>
-      <Link to="/dashboard/challenge">Challenge</Link>
-      <Link to="/dashboard/log">Session Log</Link>
+    <nav className="dash-nav" aria-label="Dashboard navigation">
+      <NavLink to="/dashboard" end>Live Monitoring</NavLink>
+      <NavLink to="/dashboard/alert">Alert</NavLink>
+      <NavLink to="/dashboard/challenge">Challenge</NavLink>
+      <NavLink to="/dashboard/log">Session Log</NavLink>
       <Link to="/">← Back to site</Link>
     </nav>
   )

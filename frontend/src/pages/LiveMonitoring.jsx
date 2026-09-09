@@ -57,7 +57,7 @@ function LiveMonitoringResults({ data }) {
         </div>
 
         <h3>Live Transcript</h3>
-        <div className="dash-transcript">{data.transcript}</div>
+        <div className="dash-transcript" tabIndex={0} role="region" aria-label="Live transcript">{data.transcript}</div>
 
         <div className="dash-flag-list">
           {data.flags.map((f) => (

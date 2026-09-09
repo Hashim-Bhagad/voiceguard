@@ -46,7 +46,7 @@ export default function AudioInput() {
   if (status === 'analyzing') {
     return (
       <div className="dash-card">
-        <span className="dash-status-pill">
+        <span className="dash-status-pill" role="status">
           <span className="dash-dot-pulse" />
           Analyzing {fileName ? `"${fileName}"` : 'audio'}…
         </span>
@@ -56,7 +56,7 @@ export default function AudioInput() {
 
   if (status === 'complete') {
     return (
-      <div className="dash-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="dash-card dash-complete">
         <span>Analysis complete for {fileName ? `"${fileName}"` : 'this call'}.</span>
         <button onClick={reset}>Analyze another call</button>
       </div>
@@ -66,9 +66,9 @@ export default function AudioInput() {
   return (
     <div className="dash-card">
       <h3>Start a call analysis</h3>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
-        <button onClick={() => fileInputRef.current?.click()}>Upload recording</button>
-        <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileChange} style={{ display: 'none' }} />
+      <div className="dash-actions">
+        <button disabled={isRecording} onClick={() => fileInputRef.current?.click()}>Upload recording</button>
+        <input ref={fileInputRef} type="file" aria-label="Upload audio recording" accept="audio/*" onChange={handleFileChange} style={{ display: 'none' }} />
 
         {!isRecording ? (
           <button onClick={startRecording}>Record from mic</button>
@@ -76,7 +76,7 @@ export default function AudioInput() {
           <button onClick={stopRecording}>Stop recording</button>
         )}
 
-        <button onClick={() => runAnalysis('demo-sample.wav')}>Use sample call (demo)</button>
+        <button disabled={isRecording} onClick={() => runAnalysis('demo-sample.wav')}>Use sample call (demo)</button>
       </div>
       {micError && <p style={{ color: '#f2545b', fontSize: 12, marginTop: 12 }}>{micError}</p>}
     </div>

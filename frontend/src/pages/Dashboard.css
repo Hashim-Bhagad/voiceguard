@@ -10,19 +10,22 @@
 
 .dash-title {
   font-size: 28px;
-  margin-bottom: 8px;
+  line-height: 1.25;
+  letter-spacing: -0.5px;
+  margin: 0 0 8px;
 }
 
 .dash-subtitle {
-  color: #6f8783;
+  color: var(--text);
   margin-bottom: 40px;
   font-family: var(--mono, monospace);
   font-size: 13px;
+  line-height: 1.6;
 }
 
 .dash-grid {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
   gap: 24px;
 }
 
@@ -31,38 +34,53 @@
 }
 
 .dash-card {
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid rgba(35, 229, 197, 0.14);
   border-radius: 12px;
   background: rgba(35, 229, 197, 0.03);
   padding: 24px;
+  box-shadow: var(--shadow);
+  overflow-wrap: anywhere;
 }
+
+.dash-page > .dash-card + .dash-grid { margin-top: 24px; }
 
 .dash-card h3 {
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #6f8783;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.5;
   margin: 0 0 16px;
 }
 
 .dash-score-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 11ch minmax(0, 1fr) 4ch;
+  gap: 12px;
   align-items: center;
   margin-bottom: 14px;
   font-family: var(--mono, monospace);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
+
+.dash-score-row > :first-child { white-space: nowrap; }
+.dash-score-row > :last-child { text-align: right; color: var(--text-h); }
 
 .dash-score-track {
   flex: 1;
   height: 6px;
   border-radius: 3px;
   background: rgba(255,255,255,0.08);
-  margin: 0 12px;
+  min-width: 0;
   overflow: hidden;
 }
 
 .dash-score-fill {
+  display: block;
   height: 100%;
   transition: width 400ms ease;
 }
@@ -78,6 +96,11 @@
   padding: 4px 10px;
   border-radius: 4px;
   text-transform: uppercase;
+  line-height: 1.5;
+  font-weight: 600;
+  border: 1px solid currentColor;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .dash-badge.tone-safe { background: rgba(46,204,113,0.15); }
@@ -92,6 +115,11 @@
   background: rgba(0,0,0,0.2);
   border-radius: 8px;
   padding: 16px;
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  scrollbar-gutter: stable;
 }
 
 .dash-flag-list {
@@ -121,6 +149,7 @@
 
 .dash-waveform span {
   flex: 1;
+  height: 100%;
   background: #23e5c5;
   border-radius: 2px;
   animation: dash-bar 1.2s ease-in-out infinite;
@@ -133,8 +162,8 @@
 
 .dash-challenge-code {
   font-family: var(--mono, monospace);
-  font-size: 42px;
-  letter-spacing: 8px;
+  font-size: clamp(26px, 6vw, 42px);
+  letter-spacing: clamp(2px, 1vw, 8px);
   text-align: center;
   padding: 30px 0;
   color: #23e5c5;
@@ -146,9 +175,13 @@
   gap: 8px;
   font-family: var(--mono, monospace);
   font-size: 13px;
+  line-height: 1.6;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .dash-dot-pulse {
+  flex-shrink: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -163,15 +196,20 @@
 
 .dash-table {
   width: 100%;
+  min-width: 540px;
   border-collapse: collapse;
   font-family: var(--mono, monospace);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
+
+.dash-table-scroll { overflow-x: auto; }
 
 .dash-table th {
   text-align: left;
   padding: 10px 12px;
-  color: #6f8783;
+  color: var(--text);
+  letter-spacing: 0.6px;
   font-size: 11px;
   text-transform: uppercase;
   border-bottom: 1px solid rgba(35, 229, 197, 0.14);
@@ -182,18 +220,30 @@
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 
+.dash-table tbody tr { transition: background-color 160ms ease; }
+.dash-table tbody tr:hover { background: var(--accent-bg); }
+.dash-table tbody tr:last-child td { border-bottom: 0; }
+
 .dash-nav {
   display: flex;
-  gap: 20px;
-  padding: 20px 32px;
+  gap: 8px 20px;
+  padding: 12px 32px;
+  overflow-x: auto;
   font-family: var(--mono, monospace);
   font-size: 13px;
   border-bottom: 1px solid rgba(35, 229, 197, 0.1);
 }
 
 .dash-nav a {
-  color: #6f8783;
+  color: var(--text);
   text-decoration: none;
+  flex-shrink: 0;
+  padding: 10px 0;
+  min-height: 44px;
+  box-sizing: border-box;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color 160ms ease, border-color 160ms ease;
 }
 
 .dash-nav a.active,
@@ -201,11 +251,55 @@
   color: #23e5c5;
 }
 
+.dash-nav a.active { border-bottom-color: var(--accent); }
+
 .dash-empty-hint {
-  color: #64748b;
+  color: var(--text);
   font-size: 0.875rem;
   margin-top: 1.5rem;
+  line-height: 1.7;
 }
 .dash-empty-hint--error {
   color: #f2545b;
+}
+
+.dash-actions, .dash-complete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.dash-actions { margin-top: 12px; }
+.dash-actions--challenge { margin-top: 24px; justify-content: center; }
+.dash-complete { justify-content: space-between; }
+.dash-complete > span { flex: 1 1 220px; min-width: 0; }
+
+.dash-page button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+.dash-page button:hover:not(:disabled) { border-color: var(--accent); box-shadow: var(--shadow); }
+.dash-page button:active:not(:disabled) { background: var(--bg); }
+
+@media (max-width: 600px) {
+  .dash-page { width: 100%; padding: 64px 20px 48px; }
+  .dash-nav { padding-inline: 20px; gap: 16px; }
+  .dash-card { padding: 20px; }
+  .dash-grid { gap: 20px; }
+  .dash-subtitle { margin-bottom: 28px; }
+  .dash-score-row { gap: 8px; font-size: 12px; }
+  .dash-actions > button { flex: 1 1 140px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-page button, .dash-nav a, .dash-table tbody tr { transition: none; }
 }

@@ -50,7 +50,7 @@ export default function AlertBanner() {
         </div>
 
         <h3>Transcript</h3>
-        <div className="dash-transcript">{data.transcript}</div>
+        <div className="dash-transcript" tabIndex={0} role="region" aria-label="Flagged transcript">{data.transcript}</div>
 
         <h3 style={{ marginTop: 20 }}>Flags</h3>
         <div className="dash-flag-list">

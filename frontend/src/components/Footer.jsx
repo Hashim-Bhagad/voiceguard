@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './Footer.css'
 
 const MARQUEE_REPEAT = 6
@@ -52,6 +52,19 @@ function MarqueeSet() {
 
 export default function Footer() {
   const [showDemo, setShowDemo] = useState(false)
+
+  useEffect(() => {
+    if (!showDemo) return
+    const trigger = document.activeElement
+    const dismiss = (event) => {
+      if (event.key === 'Escape') setShowDemo(false)
+    }
+    document.addEventListener('keydown', dismiss)
+    return () => {
+      document.removeEventListener('keydown', dismiss)
+      trigger?.focus()
+    }
+  }, [showDemo])
 
   return (
     <footer className="site-footer" id="demo">
@@ -110,15 +123,21 @@ export default function Footer() {
         >
           <form
             className="footer-modal"
+            role="dialog"
+            aria-labelledby="footer-demo-title"
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => {
               e.preventDefault()
               setShowDemo(false)
             }}
           >
-            <h3>Request a demo</h3>
-            <input required placeholder="Name" autoComplete="name" />
+            <button type="button" className="demo-modal-close" aria-label="Close demo request" onClick={() => setShowDemo(false)}>×</button>
+            <h3 id="footer-demo-title">Request a demo</h3>
+            <label className="demo-form-label" htmlFor="footer-demo-name">Name</label>
+            <input id="footer-demo-name" required placeholder="Name" autoComplete="name" />
+            <label className="demo-form-label" htmlFor="footer-demo-email">Work email</label>
             <input
+              id="footer-demo-email"
               required
               type="email"
               placeholder="Work email"
