@@ -1,4 +1,5 @@
-import { motion } from 'motion/react'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import { Link } from 'react-router-dom'
 
 const paths = {
@@ -23,7 +24,59 @@ const paths = {
 export function Icon({ name = 'shield', size = 20, ...props }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}><path d={paths[name] || paths.shield} /></svg>
 }
-export function Brand({ compact = false }) { return <Link to="/" className="brand" aria-label="VoiceGuard home"><span className="brand-icon"><Icon name="wave" size={22} /></span>{!compact && <>voiceguard<span className="brand-period">.</span></>}</Link> }
+export function Brand({ compact = false, showTagline = true, className = '' }) {
+  const [wordIndex, setWordIndex] = useState(0)
+  const words = ['TRUST', 'VISHWAS']
+
+  useEffect(() => {
+    let timeoutId
+    const step = () => {
+      setWordIndex(prev => {
+        const next = (prev + 1) % 2
+        const delay = next === 1 ? 3800 : 3200
+        timeoutId = setTimeout(step, delay)
+        return next
+      })
+    }
+    // Starts with TRUST on mount, revolves into VISHWAS after 2.8s
+    timeoutId = setTimeout(step, 2800)
+    return () => clearTimeout(timeoutId)
+  }, [])
+
+  const currentWord = words[wordIndex]
+
+  return (
+    <Link to="/" className={`brand ${className}`} aria-label="TRUST and VISHWAS home">
+      <span className="brand-icon"><Icon name="wave" size={22} /></span>
+      {!compact && (
+        <div className="brand-text-container">
+          <div className="brand-name-wrap">
+            <span className="brand-flip-stage">
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={currentWord}
+                  className={`brand-flip-word ${currentWord === 'VISHWAS' ? 'is-vishwas' : 'is-trust'}`}
+                  initial={{ opacity: 0, rotateX: -85, y: 3 }}
+                  animate={{ opacity: 1, rotateX: 0, y: 0 }}
+                  exit={{ opacity: 0, rotateX: 85, y: -3 }}
+                  transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  {currentWord}
+                </motion.span>
+              </AnimatePresence>
+            </span>
+            <span className="brand-period">.</span>
+          </div>
+          {showTagline && (
+            <span className="brand-sub-acronym">
+              (Voice Impersonation Screening with high warning alert system)
+            </span>
+          )}
+        </div>
+      )}
+    </Link>
+  )
+}
 export function PageHeading({ eyebrow, title, children, action }) { return <header className="page-heading"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{children && <p>{children}</p>}</div>{action}</header> }
 export function Panel({ title, meta, children, className = '' }) { return <section className={`panel ${className}`}>{title && <header className="panel-heading"><h2>{title}</h2>{meta}</header>}{children}</section> }
 export function Reveal({ children, className = '', delay = 0 }) { return <motion.div className={className} initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: .1 }} transition={{ duration: .5, delay }}>{children}</motion.div> }
