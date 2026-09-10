@@ -1,0 +1,8 @@
+{
+  "name": "trust-vishwas-workspace",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix frontend run build",
+    "install": "npm --prefix frontend install"
+  }
+}
