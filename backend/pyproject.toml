@@ -12,15 +12,25 @@ dependencies = [
   "numpy>=1.26",
   "python-multipart>=0.0.9",
   "firebase-admin>=6.5.0",
+  # onnxruntime and soundfile are REQUIRED, not optional. They were previously in
+  # the `full` extra, so a `uv sync` silently removed onnxruntime and the API fell
+  # back to a development heuristic while still reporting model_ver
+  # "aasist-l-indic-v0.1". Keep them here so the declared model backend can always
+  # actually run.
+  "onnxruntime>=1.18",
+  "soundfile>=0.12",
 ]
 
 [project.optional-dependencies]
+# Speech-to-text for the linguistic-risk channel. Without it the transcript is
+# empty and linguistic_score is always 0.0.
+stt = [
+  "groq>=0.11",
+]
 full = [
   "torch>=2.3",
   "transformers>=4.44",
   "librosa>=0.10",
-  "soundfile>=0.12",
-  "onnxruntime>=1.18",
   "scikit-learn>=1.5",
 ]
 dev = [
