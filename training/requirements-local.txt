@@ -1,0 +1,42 @@
+# Local training stack for VoiceGuard AASIST-L fine-tuning.
+#
+# Target: Python 3.12 (widest wheel coverage across torch/onnxruntime/librosa).
+# This machine has no NVIDIA GPU (Intel UHD only), so torch is installed from
+# the PyTorch CPU index to avoid pulling ~2.5 GB of unused CUDA wheels.
+#
+# Install (two steps, so torch comes from the CPU index and everything else
+# from PyPI -- a single mixed-index resolve can silently pick the CUDA wheel):
+#
+#   uv venv --python 3.12 .venv
+#   uv pip install --python .venv/bin/python \
+#       --index-url https://download.pytorch.org/whl/cpu "torch~=2.9"
+#   uv pip install --python .venv/bin/python -r requirements-local.txt
+#
+# Verified resolution on this machine: Python 3.12.14, torch 2.14.0+cpu.
+# Exact resolved versions are frozen in requirements-local.lock.txt.
+
+# Model + training
+torch~=2.9
+
+# Numerics / data
+numpy~=2.2
+scipy~=1.16
+pandas~=2.3
+scikit-learn~=1.7
+
+# Audio IO and resampling
+soundfile~=0.13
+soxr~=0.5
+librosa~=0.11
+
+# Config / progress
+pyyaml~=6.0
+tqdm~=4.67
+
+# Export + parity check against the backend runtime
+onnx~=1.19
+onnxruntime~=1.23
+
+# Dataset acquisition (IndicVoices, garystafford deepfake-audio-detection)
+huggingface-hub~=0.35
+datasets~=4.0

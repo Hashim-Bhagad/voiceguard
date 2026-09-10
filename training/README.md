@@ -1,117 +1,252 @@
-# Training — AASIST-L only
+# Training — AASIST-L, multilingual, local
 
-VoiceGuard uses one acoustic model everywhere: the official [ClovaAI AASIST-L](https://github.com/clovaai/aasist) raw-waveform anti-spoofing model. Fine-tune it on a Colab GPU, export one ONNX file, and run that same model with ONNX Runtime on the FastAPI server, CPU laptop, and phone.
+VoiceGuard uses one acoustic model everywhere: the official
+[ClovaAI AASIST-L](https://github.com/clovaai/aasist) raw-waveform anti-spoofing
+model (85,306 parameters). This directory fine-tunes it **on your own machine**,
+exports one ONNX file, and that same file runs under ONNX Runtime on the FastAPI
+server, a CPU laptop, and a phone.
 
-`AASIST-L` is intentionally the only deployable acoustic model. XLS-R, RawNet, WavLM, and ensembles are not part of this pipeline.
+There is no Colab step. `runtime.device: auto` uses CUDA when it is present and
+CPU otherwise.
 
-## Download this data
+XLS-R, RawNet, WavLM and ensembles are not part of this pipeline.
 
-Download only data you are licensed and authorised to use. Keep a data-provenance record and consent for every voice used to generate a clone.
+---
 
-| Purpose | Download / generate | Split use |
-|---|---|---|
-| Primary Indic bona-fide training | [AI4Bharat IndicVoices](https://huggingface.co/datasets/ai4bharat/IndicVoices) | Train; speaker-disjoint from every other split |
-| Higher-quality bona-fide holdout | [IndicVoices-R](https://huggingface.co/datasets/ai4bharat/indicvoices_r) | Dev/test bona-fide, subject to licence |
-| Hindi accent holdout | [Lahaja](https://huggingface.co/datasets/ai4bharat/Lahaja) | Dev/test Hindi bona-fide |
-| Indian-English accent holdout | [Svarah](https://github.com/AI4Bharat/Svarah) | Dev/test Indian-English bona-fide |
-| Anti-spoof initial weights / benchmark | [ASVspoof 2019 LA](https://www.asvspoof.org/) and the AASIST-L checkpoint | Use the checkpoint to initialise; do not claim Indic performance from it |
-| Primary Indic spoof | Generate consented samples with [IndicF5](https://huggingface.co/ai4bharat/IndicF5) | Train only for generator A |
-| Unseen-generator spoof | A second permitted TTS family and a VC system | Dev/test only; each must be unseen in training |
-| Generalisation evaluation | [Gary Stafford deepfake-audio-detection](https://huggingface.co/datasets/garystafford/deepfake-audio-detection) and [In-the-Wild](https://www.kaggle.com/datasets/awsaf49/in-the-wild-audio-deepfake-dataset) | Report separately; do not mix into the Indic final test |
+## 1. Environment
 
-For the first credible run, use Hindi, Indian English, Marathi, and Tamil. Build a balanced initial corpus of roughly 3,000–5,000 clips: 2,000–3,000 bona-fide clips plus TTS, VC, replay, and partial-insert spoof clips. Do **not** label an Indian genuine dataset as spoof.
-
-### Required split discipline
-
-`data/metadata.csv` must have:
-
-```csv
-clip_path,label,attack_family,generator,language,speaker_id,split,codec,noise_condition,consent_or_license
-train/bonafide/hi_0001.wav,bonafide,none,none,hi,speaker_0001,train,clean,quiet,licensed
-train/spoof/hi_0002.wav,spoof,tts,indicf5,hi,source_speaker_001,train,clean,quiet,consented
-```
-
-The code rejects a manifest unless:
-
-- Each split has bona-fide and spoof clips.
-- Speakers are disjoint across train, dev, and test.
-- Dev and test each include at least one spoof generator unseen during training.
-- Labels are exactly `bonafide` or `spoof`.
-
-Use `generator=none` for bona-fide speech. Include replay and partial inserts using `attack_family=replay` and `attack_family=partial`.
-
-## Colab run
-
-1. Create a Colab notebook with a **T4 GPU** runtime. Copy this `training/` directory into `/content/voiceguard/training` or clone your project there.
-2. Open a terminal/cell in the `training/` directory:
+Python 3.12 is used because it has the widest wheel coverage across torch,
+onnxruntime and librosa. `uv` will fetch it if needed.
 
 ```bash
-pip install -q -r requirements-colab.txt
-python scripts/bootstrap_aasist.py
-python scripts/download_pretrained.py --output-dir weights
+cd training
+
+uv venv --python 3.12 .venv
+
+# torch from the CPU index, so you do not download ~2.5 GB of unused CUDA wheels
+uv pip install --python .venv/bin/python \
+    --index-url https://download.pytorch.org/whl/cpu "torch~=2.9"
+uv pip install --python .venv/bin/python -r requirements-local.txt
 ```
 
-3. Download approved Hugging Face source datasets. This command saves the resolved dataset revision next to the files; it can be large, so use `--allow-pattern` where the source publishes useful subset paths.
+`requirements-local.lock.txt` holds the exact versions this was verified against
+(Python 3.12.14, torch 2.14.0+cpu).
+
+Fetch the pinned upstream source and its released checkpoint:
 
 ```bash
-python scripts/download_hf_dataset.py --repo-id ai4bharat/IndicVoices --output-dir data/sources/IndicVoices
-python scripts/download_hf_dataset.py --repo-id ai4bharat/indicvoices_r --output-dir data/sources/IndicVoices-R
+.venv/bin/python scripts/bootstrap_aasist.py      # clones clovaai/aasist at a pinned commit
+.venv/bin/python scripts/resolve_pretrained.py    # copies + verifies weights/AASIST-L.pth
 ```
 
-Prepare your consented/generated audio and create `data/metadata.csv`. Dataset schemas differ, so audio selection and manifest construction remain explicit rather than silently assigning labels.
+`resolve_pretrained.py` asserts the checkpoint loads into the pinned architecture
+with zero missing or unexpected keys. Those weights were trained on ASVspoof 2019
+LA (English, older codecs) — they are an initialisation, not an Indic result.
 
-4. Validate, fine-tune, evaluate, and export:
+Sanity check the library code at any time:
 
 ```bash
-python scripts/validate_manifest.py --metadata-csv data/metadata.csv --check-files
-python train_aasist_l.py --config configs/aasist_l.yaml --pretrained weights/AASIST-L.pth
-python eval.py --ckpt outputs/aasist_l_indic/best.pt --metadata-csv data/metadata.csv --threshold-split dev --eval-split test
-python export_onnx.py --ckpt outputs/aasist_l_indic/best.pt --out aasist-l-indic-v0.1.onnx
+.venv/bin/python tests/test_src.py
+.venv/bin/python tests/test_ingest.py
 ```
 
-Copy `aasist-l-indic-v0.1.onnx` to `backend/models/`, set `MODEL_BACKEND=aasist-l-onnx`, and restart the backend. The ONNX file accepts `waveform: float32[batch, 64600]` at 16 kHz and returns `spoof_logit: float32[batch]`; positive values mean more spoof-like.
+---
+
+## 2. Credentials
+
+Copy `.env.example` to `.env` and fill in what you need. `.env` is gitignored.
+
+```
+HF_TOKEN=hf_...
+```
+
+A read-only Hugging Face token is enough. IndicVoices is a **gated** dataset:
+accept its terms on the dataset page once, with the same account, before
+ingesting. Never commit `.env` or paste the token into a notebook.
+
+---
+
+## 3. Data
+
+Download only what you are licensed to use, and keep the provenance record each
+ingest script writes next to its output.
+
+| Source | Role | Licence | Notes |
+|---|---|---|---|
+| [AI4Bharat IndicVoices](https://huggingface.co/datasets/ai4bharat/IndicVoices) | Indic bona-fide | CC-BY-4.0, gated | 22 Indian languages. **No English config exists.** |
+| [garystafford/deepfake-audio-detection](https://huggingface.co/datasets/garystafford/deepfake-audio-detection) | English bona-fide + 6 TTS families | CC-BY-4.0 | 933 real / 933 fake, 16 kHz FLAC |
+| [In-the-Wild](https://huggingface.co/datasets/mueller91/In-The-Wild) | Real-world generalisation set | CC-BY-SA-4.0 | 58 celebrities, 37.9 h. Ungated mirror of the Kaggle set, so no Kaggle login needed |
+
+Each `scripts/ingest_*.py` normalises audio to 16 kHz mono WAV under
+`data/audio/`, then writes a candidate CSV plus a `.source.json` recording the
+resolved dataset revision.
+
+```bash
+.venv/bin/python scripts/ingest_garystafford.py
+.venv/bin/python scripts/ingest_in_the_wild.py                 # ~7 GB download
+.venv/bin/python scripts/ingest_indicvoices.py \
+    --languages hindi marathi tamil bengali --max-per-language 400
+```
+
+Candidate CSVs deliberately have **no `split` column**. Splits are assigned once,
+globally, in step 4.
+
+### Read this before you trust any number
+
+These three sources put **every Indic clip on the bona-fide side and every spoof
+clip in English**. A classifier can then score a near-zero EER by learning
+"sounds Indic → genuine", and it will miss real Hindi or Tamil clones in
+production. Two partial mitigations are wired in:
+
+* English appears on *both* sides, because garystafford and In-the-Wild each
+  supply real English as well as fake.
+* `scripts/make_vocoded_spoof.py` puts Indic audio on the spoof side by
+  re-synthesising held-out IndicVoices speakers through a vocoder-style
+  analysis/resynthesis pass:
+
+```bash
+.venv/bin/python scripts/make_vocoded_spoof.py --max-per-language 200
+```
+
+Those clips are **not voice clones** — content and speaker identity are
+unchanged, only the signal path is synthetic. They teach the model to react to
+vocoder artifacts in Indic languages, which is the shared final stage of
+essentially every TTS and voice-conversion system. They are labelled
+`attack_family=vocoded` so you can report them separately or drop them. Do not
+publish an "Indic deepfake detection EER" that rests on them. To make a real
+claim you need consented Indic TTS/VC clips registered as their own generators.
+
+---
+
+## 4. Manifest
+
+```bash
+.venv/bin/python scripts/build_manifest.py --check-files \
+    --dev-generators elevenlabs \
+    --test-generators speechify in_the_wild_unknown
+```
+
+This pools the candidate CSVs and assigns `train`/`dev`/`test` under three
+constraints, then validates through the same code path training uses:
+
+1. **Speaker-disjoint** — all of a speaker's clips land in one split, so the model
+   cannot recognise the voice instead of the artifacts.
+2. **Generator holdout** — whole TTS/VC families are reserved for dev and test, so
+   the reported EER measures generalisation to an unseen synthesiser rather than
+   in-generator recall.
+3. **Per-language label coverage** — it prints a warning for every language that
+   appears with only one label, because that is the confound above.
+
+Re-validate an existing manifest at any time:
+
+```bash
+.venv/bin/python scripts/validate_manifest.py --metadata-csv data/metadata.csv --check-files
+```
+
+---
+
+## 5. Train
+
+```bash
+.venv/bin/python train_aasist_l.py \
+    --config configs/aasist_l.yaml \
+    --pretrained weights/AASIST-L.pth
+```
+
+Laptop-friendly behaviour:
+
+* Writes `last.pt` every epoch; `--resume` continues from it with optimiser,
+  scheduler and epoch state intact.
+* `train.max_hours` stops cleanly on a wall-clock budget so a long run can be
+  split across sittings.
+* `runtime.cache_dir` caches decoded 16 kHz audio as `.npy`, so only the first
+  epoch pays FLAC decode and resampling.
+* `data.balanced_sampler` samples batches inversely to (label × language)
+  frequency, so a big English spoof corpus next to a smaller Indic bona-fide
+  corpus does not make "English" and "spoof" correlated within a batch.
+* Per-epoch metrics go to `outputs/<run>/history.csv`, plus a `summary.json`.
+
+Augmentation (narrowband round trip, additive noise, RIR, gain) is applied
+**identically to both labels**. Applying it to one class would make the
+augmentation itself the discriminative feature. If `augmentation.noise_dir` or
+`rir_dir` is absent, the loader warns and substitutes a synthetic generator
+rather than silently disabling the augmentation.
+
+### Expect CPU training to be slow
+
+Measured on this project's reference machine (Intel i5-12450H, 12 logical cores,
+no NVIDIA GPU), AASIST-L fine-tuning ran at roughly **1.5 clips/s** at batch 16 —
+about 12 minutes per epoch over 1,108 training clips. Scale that to your corpus
+before planning a run, and use `--max-hours` plus `--resume`. The model is small
+in parameters but its 2D residual stack over a 70-channel sinc-conv front end is
+what costs the time, not the parameter count.
+
+---
+
+## 6. Evaluate
+
+```bash
+.venv/bin/python eval.py --ckpt outputs/aasist_l_indic/best.pt --save-scores
+```
+
+The threshold comes from `dev`; the headline EER is on `test`, whose spoof
+generators were never seen in training. Per-language and per-generator FPR/FNR
+are printed by default, along with a per-language EER wherever a language has
+both labels. A high overall score with a bad Indic breakdown is the failure mode
+to watch for.
+
+---
+
+## 7. Export
+
+```bash
+.venv/bin/python export_onnx.py --ckpt outputs/aasist_l_indic/best.pt \
+    --out aasist-l-indic-v0.1.onnx
+```
+
+The ONNX contract the backend expects:
+
+| | |
+|---|---|
+| input | `waveform` `float32[batch, 64600]`, 16 kHz mono, in `[-1, 1]` |
+| output | `spoof_logit` `float32[batch]`, positive means more spoof-like |
+
+Export is verified against PyTorch at batch 1 and batch 3 (the second call also
+proves the dynamic batch axis works) and refuses to write an unverified file.
+Then copy it to `backend/models/`, set `MODEL_BACKEND=aasist-l-onnx`, and restart
+the backend.
+
+---
 
 ## Files
 
-- `scripts/bootstrap_aasist.py` — clones the official AASIST source at a pinned revision.
-- `scripts/download_pretrained.py` — downloads the public upstream-compatible AASIST-L checkpoint.
-- `scripts/download_hf_dataset.py` — reproducibly snapshots approved Hugging Face datasets.
-- `scripts/validate_manifest.py` — validates labels, paths, speaker splits, and generator holdout.
-- `src/model.py` — adapter for only the official AASIST-L architecture.
-- `src/dataset.py` — 16 kHz, 64,600-sample windows and label-neutral narrowband/noise/RIR augmentation.
-- `train_aasist_l.py` — GPU fine-tuning with mixed precision, cosine decay, gradient clipping, and dev-EER early stopping.
-- `eval.py` — dev-thresholded fixed-test EER, ROC-AUC, PR-AUC, and group FPR/FNR.
-- `export_onnx.py` — ONNX export plus a PyTorch/ONNX numerical equivalence check.
+| Path | Purpose |
+|---|---|
+| `scripts/bootstrap_aasist.py` | Clone official AASIST at a pinned revision |
+| `scripts/resolve_pretrained.py` | Resolve + verify `AASIST-L.pth` from that clone |
+| `scripts/inspect_hf_dataset.py` | Inspect a HF dataset's configs and files |
+| `scripts/ingest_indicvoices.py` | Stream capped Indic bona-fide clips |
+| `scripts/ingest_garystafford.py` | English real + 6 TTS families, generator from filename |
+| `scripts/ingest_in_the_wild.py` | Real-world English benchmark |
+| `scripts/make_vocoded_spoof.py` | Indic vocoder-resynthesis spoof (auxiliary only) |
+| `scripts/build_manifest.py` | Global speaker-disjoint split + generator holdout |
+| `scripts/validate_manifest.py` | Re-check an existing manifest |
+| `src/ingest.py` | Shared ingest layer, incl. verified downloads |
+| `src/dataset.py` | Manifest loading, 64,600-sample windows, label-neutral augmentation |
+| `src/model.py` | Adapter for only the official AASIST-L architecture |
+| `train_aasist_l.py` | Device-agnostic fine-tuning with resume and time budget |
+| `eval.py` | Dev-thresholded test EER plus group breakdowns |
+| `export_onnx.py` | Verified ONNX export |
+| `tests/` | Runnable checks for the above (plain python, no pytest) |
 
-Do not report an accuracy, latency, quantisation, or phone-compatibility claim until the final exported model has been measured on your held-out Indic test set and actual target devices.
+Downloads are verified for completeness, not just for a zero exit code.
+`huggingface_hub` falls back to returning an existing partial `local_dir` when the
+API becomes unreachable mid-transfer, which once silently produced 241 of 933
+real clips with exit status 0 — a skew that would have quietly corrupted training.
+`src/ingest.download_snapshot` resolves the authoritative file list first and
+loops until every expected file is on disk.
 
-
-## Local credentials
-
-`training/.env` is loaded automatically by the Hugging Face download scripts and is ignored by Git. It contains `HF_TOKEN` and `KAGGLE_API_TOKEN`; never upload it to a public notebook, commit it, or share it in chat. For Colab, create `HF_TOKEN` and `KAGGLE_API_TOKEN` as private **Colab Secrets** instead. Kaggle downloads may additionally require `KAGGLE_USERNAME`, depending on the Kaggle client/account authentication flow.
-
-
-## Full Indic run (selected)
-
-The full run uses Hindi (`hi`), Indian English (`en-IN`), Marathi (`mr`), and Tamil (`ta`). **Do not use `download_hf_dataset.py` to mirror IndicVoices or IndicVoices-R:** their published scale makes full snapshots impractical. Instead, inspect their actual current config and feature names, then stream an intentionally capped subset with `scripts/collect_hf_bonafide.py`. The provenance JSON written beside each candidate CSV captures the resolved source revision.
-
-```bash
-python scripts/inspect_hf_dataset.py --repo-id ai4bharat/IndicVoices
-python scripts/inspect_hf_dataset.py --repo-id ai4bharat/indicvoices_r
-# After replacing each <verified-...> value from the inspection result:
-python scripts/collect_hf_bonafide.py \
-  --repo-id ai4bharat/IndicVoices --config <verified-config> --source-split <verified-split> \
-  --source-name indicvoices --target-split train --languages hi en-IN mr ta \
-  --max-per-language 400 --audio-field <verified-audio-field> \
-  --language-field <verified-language-field> --speaker-field <verified-speaker-field> \
-  --license-or-consent "IndicVoices terms accepted" --output-root data
-```
-
-Use IndicVoices-R as bona-fide dev/test, Lahaja only as a gated Hindi holdout, and Svarah only as an Indian-English holdout. Generate `indicf5`/VC-A training spoof clips from consented donors; reserve TTS-B/VC-B for dev and TTS-C/VC-C for test where possible. Register every reviewed source in `data/candidates/*.csv`, using `data_templates/full_run_source_candidates.csv` as the column template. Full source budgets, split rules, and assembly instructions are in [`data_templates/full_run_plan.md`](data_templates/full_run_plan.md).
-
-```bash
-python scripts/assemble_full_manifest.py --candidates-dir data/candidates --out data/metadata.csv --check-files
-python scripts/validate_manifest.py --metadata-csv data/metadata.csv --check-files
-```
-
-Both checks must pass before you run `train_aasist_l.py` or the Colab notebook. The source descriptions above were rephrased for compliance with licensing restrictions.
+Do not report an accuracy, latency, quantisation or phone-compatibility claim
+until the exported model has been measured on your held-out test split and on the
+actual target devices. Source descriptions above were rephrased for compliance
+with licensing restrictions.
