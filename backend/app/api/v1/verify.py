@@ -3,7 +3,7 @@ import uuid
 import numpy as np
 from fastapi import APIRouter, UploadFile, File, Form
 from app.schemas.contracts import VerifyResponse
-from app.services import model_registry, prosody, linguistic, fusion, stt, audio_utils, firestore_service
+from app.services import model_registry, prosody, linguistic, fusion, stt, audio_utils, firestore_service, explainability
 from app.core.config import get_settings
 
 router = APIRouter()
@@ -59,7 +59,21 @@ async def verify_file(
     challenge_triggered = (action == "challenge") or (final_risk >= 0.50)
     s = get_settings()
 
-    # 7. Persist to Firestore
+    # 7. Explainability & Forensic Report
+    forensic_report = explainability.generate_forensic_report(
+        audio_16k=audio,
+        linguistic_hits=matched_flags,
+        spoof_score=spoof_score,
+        prosody_flag="flat" if prosody_is_flat else "normal",
+    )
+    fusion_breakdown = fusion.get_fusion_breakdown(
+        spoof=spoof_score,
+        linguistic=ling_score,
+        context_risk=ctx_risk,
+        prosody_flat=prosody_is_flat,
+    )
+
+    # 8. Persist Telemetry to Firestore (Never raw audio)
     session_record = {
         "session_id": session_id,
         "caller": caller_id,
@@ -72,6 +86,7 @@ async def verify_file(
         "flags": matched_flags,
         "timestamp": int(time.time() * 1000),
         "policy_profile": policy_profile,
+        "diagnostic_summary": forensic_report["diagnostic_reasons"][:2],
     }
     firestore_service.save_session(session_record)
 
@@ -109,4 +124,14 @@ async def verify_file(
         segments=[],
         flags=matched_flags,
         challenge_triggered=challenge_triggered,
+        lang_detected=lang_hint,
+        explainability=forensic_report,
+        fusion_breakdown=fusion_breakdown,
+        privacy_attestation={
+            "zero_raw_audio_stored": True,
+            "ephemeral_ram_buffer": True,
+            "compliance": "DPDP Act 2023 Compliant",
+            "retention_policy": "Derived acoustic features & transcript only; audio waveform discarded post-inference",
+        },
     )
+

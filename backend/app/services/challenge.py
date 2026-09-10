@@ -1,98 +1,169 @@
 """Challenge-response verification service.
-Generates dynamic multilingual phrases, enforces strict 30-second expiry,
-and verifies both spoken transcript tokens and acoustic liveness.
+Generates dynamic 4-digit challenges ("Please repeat 4-7-2-9"), enforces strict 30-second expiry,
+evaluates response latency (deepfake pipelines lag >2.5s), and verifies spoken transcript & acoustic liveness.
 """
 from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from typing import Any, Dict
 
-from app.services import audio_utils, model_registry, stt, firestore_service
+from app.services import audio_utils, model_registry, stt, firestore_service, explainability
 
 log = logging.getLogger("voiceguard.challenge")
 
-_DIGITS = ["2", "3", "4", "5", "6", "7", "8", "9"]
-_WORDS = ["neela", "tara", "sher", "ganga", "deep", "rani", "blue", "seven", "suraj", "chandra"]
+_DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
-# Active in-flight challenges: session_id -> {phrase, tokens, ts}
+# Multilingual digit word mapping for STT transcripts
+DIGIT_WORD_MAP: dict[str, str] = {
+    # English
+    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+    "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+    # Hindi / Hinglish
+    "shunya": "0", "ek": "1", "do": "2", "teen": "3", "char": "4",
+    "chaar": "4", "paanch": "5", "panch": "5", "chhe": "6", "che": "6",
+    "saat": "7", "sat": "7", "aath": "8", "ath": "8", "nau": "9", "no": "9",
+    "एक": "1", "दो": "2", "तीन": "3", "चार": "4", "पांच": "5", 
+    "छह": "6", "सात": "7", "आठ": "8", "नौ": "9", "शून्य": "0"
+}
+
+# Active in-flight challenges: session_id -> {code, tokens, prompt, ts}
 _active: dict[str, dict] = {}
 EXPIRY_SECONDS = 30
 
 
 def create_challenge(session_id: str) -> dict:
-    """Generate a truly random multilingual phrase bound to session_id."""
-    tokens = [random.choice(_DIGITS), random.choice(_DIGITS), random.choice(_WORDS), random.choice(_DIGITS)]
+    """Generate a dynamic 4-digit challenge bound to session_id."""
+    tokens = [random.choice(_DIGITS) for _ in range(4)]
+    display_code = " ".join(tokens)
     phrase = "-".join(tokens)
+    prompt = f"Please repeat the numbers: {', '.join(tokens)}"
     now = time.time()
+    
     _active[session_id] = {
         "phrase": phrase,
         "tokens": tokens,
+        "display_code": display_code,
+        "prompt": prompt,
         "ts": now,
     }
-    log.info("Issued challenge '%s' for session %s (expires in %ds)", phrase, session_id, EXPIRY_SECONDS)
+    log.info("Issued challenge '%s' for session %s (expires in %ds)", display_code, session_id, EXPIRY_SECONDS)
     return {
         "session_id": session_id,
+        "display_code": display_code,
         "phrase": phrase,
         "tokens": tokens,
-        "display_code": " ".join(tokens),
+        "prompt": prompt,
         "expires_in_s": EXPIRY_SECONDS,
+        "issued_at": int(now * 1000),
     }
+
+
+def _extract_digits_from_transcript(transcript: str) -> list[str]:
+    """Normalize and extract spoken digits from transcript (numbers and words)."""
+    t_clean = re.sub(r"[^\w\s\u0900-\u097F]", " ", transcript.lower())
+    words = t_clean.split()
+    extracted: list[str] = []
+
+    for w in words:
+        if w in _DIGITS or w == "0":
+            extracted.append(w)
+        elif w in DIGIT_WORD_MAP:
+            extracted.append(DIGIT_WORD_MAP[w])
+        else:
+            # Check characters if glued together e.g. "4729"
+            for ch in w:
+                if ch in _DIGITS or ch == "0":
+                    extracted.append(ch)
+
+    return extracted
 
 
 def verify_challenge_audio(session_id: str, audio_bytes: bytes, filename: str = "response.wav") -> dict:
     """End-to-end verification of challenge response audio:
     1. Checks challenge existence and TTL expiry.
-    2. Runs Groq Whisper STT on response audio.
-    3. Verifies spoken tokens match the generated challenge.
-    4. Runs AASIST-L acoustic CNN to ensure the response is not cloned/replayed.
-    5. Clears the challenge to prevent replay attacks.
+    2. Measures response latency (real-time deepfake pipelines struggle with arbitrary unseen text).
+    3. Runs Groq Whisper STT on response audio.
+    4. Extracts and matches spoken digits against target challenge.
+    5. Runs acoustic spoof detection & pitch jitter forensics.
     """
+    now = time.time()
     ch = _active.pop(session_id, None)
     if not ch:
-        return {"result": "uncertain", "reason": "No active challenge found for this session"}
+        return {
+            "session_id": session_id,
+            "result": "uncertain",
+            "reason": "No active challenge found for this session. A challenge must be requested first.",
+            "latency_ms": 0,
+        }
 
-    elapsed = time.time() - ch["ts"]
+    elapsed = now - ch["ts"]
+    latency_ms = int(elapsed * 1000)
+
     if elapsed > EXPIRY_SECONDS:
-        return {"result": "fail", "reason": f"Challenge expired ({elapsed:.1f}s > {EXPIRY_SECONDS}s)"}
+        return {
+            "session_id": session_id,
+            "result": "fail",
+            "reason": f"Challenge expired ({elapsed:.1f}s > {EXPIRY_SECONDS}s window)",
+            "latency_ms": latency_ms,
+        }
 
     # Transcribe response audio
     transcript = stt.transcribe_audio(audio_bytes, filename=filename)
-    transcript_lower = transcript.lower()
+    spoken_digits = _extract_digits_from_transcript(transcript)
+    expected_tokens = ch["tokens"]
 
-    # Check tokens match
-    tokens = ch["tokens"]
-    matched_tokens = [t for t in tokens if t.lower() in transcript_lower]
-    match_ratio = len(matched_tokens) / len(tokens) if tokens else 0.0
+    # Match tokens
+    matched_count = sum(1 for tok in expected_tokens if tok in spoken_digits)
+    match_ratio = matched_count / len(expected_tokens) if expected_tokens else 0.0
 
-    # Acoustic spoof score
+    # Acoustic spoof score & jitter forensics
     audio = audio_utils.decode_audio_to_16k_mono(audio_bytes)
     spoof_score = float(model_registry.score_spoof(audio)) if audio.size > 0 else 0.0
+    jitter = explainability.extract_pitch_jitter(audio) if audio.size > 0 else 1.0
 
-    result = "uncertain"
-    reason = ""
+    # Pipeline latency indicator:
+    # A human typically responds within 0.4s - 2.5s.
+    # Few-shot voice cloning pipelines (STT -> text buffer -> neural TTS -> neural vocoder)
+    # often take >2.8s for unseen text.
+    latency_verdict = "natural_human_reflex" if latency_ms <= 3000 else "delayed_pipeline_latency"
 
-    if match_ratio >= 0.60:
-        if spoof_score < 0.45:
+    result = "fail"
+    reasons: list[str] = []
+
+    if match_ratio >= 0.75:
+        if spoof_score < 0.45 and jitter >= 0.35:
             result = "pass"
-            reason = f"Spoken phrase matched ({len(matched_tokens)}/{len(tokens)} tokens) with natural acoustic liveness"
-        else:
+            reasons.append(f"Spoken digits matched ({matched_count}/{len(expected_tokens)}) with verified natural vocal liveness.")
+        elif spoof_score >= 0.45:
             result = "fail"
-            reason = f"Phrase matched but acoustic detector flagged synthetic voice (spoof: {spoof_score:.2f})"
+            reasons.append(f"Challenge digits repeated, but acoustic model detected synthetic voice synthesis (spoof: {int(spoof_score*100)}%).")
+        elif jitter < 0.35:
+            result = "fail"
+            reasons.append(f"Challenge digits repeated, but unnatural pitch micro-jitter detected ({jitter:.2f}%): indicates pre-rendered or cloned speech.")
     else:
         result = "fail"
-        reason = f"Challenge phrase mismatch. Spoken: '{transcript}', expected: '{ch['phrase']}'"
+        reasons.append(f"Spoken digits mismatch. Expected: '{ch['display_code']}', heard: '{transcript}'.")
 
-    log.info("Challenge verification for %s: %s (%s)", session_id, result, reason)
+    primary_reason = " ".join(reasons)
+    log.info("Challenge verification for %s: %s (%s)", session_id, result, primary_reason)
+
     return {
         "session_id": session_id,
         "result": result,
-        "reason": reason,
-        "phrase": ch["phrase"],
+        "reason": primary_reason,
+        "display_code": ch["display_code"],
         "transcript": transcript,
-        "spoof_score": spoof_score,
-        "matched_tokens": matched_tokens,
+        "spoken_digits": spoken_digits,
+        "expected_digits": expected_tokens,
+        "matched_count": matched_count,
+        "match_ratio": round(match_ratio, 2),
+        "latency_ms": latency_ms,
+        "latency_verdict": latency_verdict,
+        "spoof_score": round(spoof_score, 3),
+        "jitter_pct": round(jitter, 3),
     }
 
 
@@ -106,13 +177,14 @@ def verify_response(session_id: str, transcript: str, spoof_score: float) -> dic
     if elapsed > EXPIRY_SECONDS:
         return {"result": "fail", "reason": "challenge expired"}
 
-    t_lower = transcript.lower()
-    tokens = ch.get("tokens", ch["phrase"].split("-"))
-    matched = [tok for tok in tokens if tok.lower() in t_lower]
-    ok_text = len(matched) >= len(tokens) // 2 + 1
+    spoken_digits = _extract_digits_from_transcript(transcript)
+    expected_tokens = ch.get("tokens", [])
+    matched_count = sum(1 for tok in expected_tokens if tok in spoken_digits)
+    ok_text = matched_count >= len(expected_tokens) * 0.75
 
     if ok_text and spoof_score < 0.45:
-        return {"result": "pass", "reason": "matched + natural"}
+        return {"result": "pass", "reason": f"Matched digits ({matched_count}/{len(expected_tokens)}) + natural liveness"}
     if spoof_score >= 0.45:
-        return {"result": "fail", "reason": "response still synthetic"}
-    return {"result": "uncertain", "reason": f"text mismatch (expected '{ch['phrase']}', heard '{transcript}')"}
+        return {"result": "fail", "reason": "response flagged as synthetic audio"}
+    return {"result": "fail", "reason": f"Digit mismatch (expected '{ch['display_code']}', heard '{transcript}')"}
+

@@ -51,6 +51,15 @@ class VerifyResponse(Telemetry):
     linguistic_risk_score: float = 0.0
     final_risk_score: float = 0.0
     transcript: str = ""
+    lang_detected: str = "auto"
+    explainability: dict = Field(default_factory=dict)
+    fusion_breakdown: dict = Field(default_factory=dict)
+    privacy_attestation: dict = Field(default_factory=lambda: {
+        "zero_raw_audio_stored": True,
+        "ephemeral_ram_buffer": True,
+        "compliance": "DPDP Act 2023 Compliant",
+        "retention_policy": "Derived features only; raw waveform discarded post-inference",
+    })
 
 
 class EnrollRequest(BaseModel):

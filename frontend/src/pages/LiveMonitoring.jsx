@@ -1,115 +1,43 @@
+import { Link } from 'react-router-dom'
+import { motion } from 'motion/react'
 import { useAnalysis } from '../lib/AnalysisContext'
+import { percent, verdict } from '../lib/analysis'
 import AudioInput from '../components/AudioInput'
-import './Dashboard.css'
+import { Icon, Panel, PageHeading, EmptyState, Waveform } from '../components/ui'
+import { RiskGauge, SignalFusion } from '../components/SignalGraphics'
+import { EvidenceCarousel } from '../components/Carousels'
 
-function pct(x) {
-  return Math.round((x ?? 0) * 100)
-}
-
-function verdictFor(risk) {
-  if (risk >= 70) return { label: 'High Risk', tone: 'high' }
-  if (risk >= 40) return { label: 'Caution', tone: 'caution' }
-  return { label: 'Safe', tone: 'safe' }
+function ContextualStepper({ status, data }) {
+  const isAnalyzing = status === 'analyzing'
+  const hasData = Boolean(data)
+  const isElevated = Boolean(data?.challenge_triggered)
+  const activeStep = isElevated ? 3 : hasData ? 2 : isAnalyzing ? 1 : 0
+  const steps = [
+    { id: 'record', label: 'Record' },
+    { id: 'analyze', label: 'Analyze' },
+    { id: 'review', label: 'Review' },
+    { id: 'verify', label: 'Verify' }
+  ]
+  return <div className="contextual-stepper" role="region" aria-label="Analysis workflow stages"><div className="stepper-steps">{steps.map((s, idx) => {
+    const isCurrent = activeStep === idx
+    const isDone = activeStep > idx
+    return <div key={s.id} className={`stepper-step ${isCurrent ? 'active' : ''} ${isDone ? 'done' : ''}`}><span className="stepper-num">{isDone ? <Icon name="check" size={12} /> : `0${idx + 1}`}</span><span className="stepper-label">{s.label}</span>{idx < steps.length - 1 && <Icon name="arrow" size={11} className="stepper-arrow" />}</div>
+  })}</div><div className="stepper-action">{isAnalyzing ? <span className="badge caution pulse"><Icon name="wave" size={14} /> Processing audio…</span> : isElevated ? <Link to="/dashboard/challenge" className="button primary compact"><Icon name="shield" size={14} /> Verify caller <Icon name="arrow" size={14} /></Link> : hasData ? <span className="badge safe"><Icon name="check" size={14} /> Results ready</span> : <span className="badge neutral"><Icon name="mic" size={14} /> Ready for audio</span>}</div></div>
 }
 
 export default function LiveMonitoring() {
-  const { status, data } = useAnalysis()
-
-  return (
-    <div className="dash-page">
-      <h1 className="dash-title">Live Monitoring</h1>
-      <p className="dash-subtitle">Active call — analysis running in real time</p>
-
-      <AudioInput />
-
-      {status === 'idle' && (
-        <p className="dash-empty-hint">
-          Upload a recording, record from the mic, or use the sample call above to see live analysis.
-        </p>
-      )}
-
-      {status === 'error' && (
-        <p className="dash-empty-hint dash-empty-hint--error">
-          Analysis failed. Try again, or use the sample call.
-        </p>
-      )}
-
-      {data && <LiveMonitoringResults data={data} />}
-    </div>
-  )
+  const { status, data, history } = useAnalysis()
+  const highCount = history.filter(row => row.challenge_triggered).length
+  return <><PageHeading eyebrow="VOICE INTELLIGENCE" title="A clearer picture of every voice." action={<span className="page-date">{new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date())}</span>}>Analyze a conversation. Understand the signals. Decide what comes next.</PageHeading><div className="overview-stats"><div><span><Icon name="wave" size={17} />Analyzed this visit</span><strong>{String(history.length).padStart(2, '0')}<small>conversations</small></strong></div><div><span><Icon name="alert" size={17} />Step-up recommended</span><strong>{String(highCount).padStart(2, '0')}<small>sessions to review</small></strong></div><div><span><Icon name="shield" size={17} />Current session</span><strong className="stat-text">{status === 'analyzing' ? 'Analyzing' : data ? verdict(data).label : 'Ready when you are'}<small>{data?.source === 'demo' ? 'Prepared demo result' : data?.source === 'live' ? 'Response from analysis service' : 'Upload, record, or try a demo'}</small></strong></div></div><ContextualStepper status={status} data={data} /><AudioInput />{data ? <Results key={data.session_id} data={data} /> : <Panel title="Conversation intelligence" meta={<span className="badge neutral">{status === 'analyzing' ? 'PROCESSING' : 'AWAITING AUDIO'}</span>}><EmptyState title={status === 'analyzing' ? 'Your analysis is on its way.' : 'Every conversation has a story.'}>{status === 'analyzing' ? 'Your transcript and evidence will appear here when the service responds.' : 'Choose a recording or a scenario above to see the transcript, risk breakdown, and recommended next step.'}</EmptyState><div className="empty-signals"><span>01 / Acoustic signals</span><span>02 / Language cues</span><span>03 / Contextual risk</span></div></Panel>}</>
 }
-
-// Split out so the JSX below is only ever rendered once `data` actually
-// exists — no more optional chaining or `?? 0` fallbacks scattered through
-// every score row just to survive a null render.
-function LiveMonitoringResults({ data }) {
-  const finalRisk = pct(data.final_risk_score)
-  const verdict = verdictFor(finalRisk)
-
-  return (
-    <div className="dash-grid">
-      <div className="dash-card">
-        <h3>Waveform</h3>
-        <div className="dash-waveform">
-          {Array.from({ length: 32 }).map((_, i) => (
-            <span key={i} style={{ animationDelay: `${(i % 8) * 0.08}s` }} />
-          ))}
-        </div>
-
-        <h3>Live Transcript</h3>
-        <div className="dash-transcript" tabIndex={0} role="region" aria-label="Live transcript">{data.transcript}</div>
-
-        <div className="dash-flag-list">
-          {data.flags.map((f) => (
-            <span className="dash-flag" key={f}>{f.replaceAll('_', ' ')}</span>
-          ))}
-        </div>
-      </div>
-
-      <div className="dash-card">
-        <h3>Risk Breakdown</h3>
-
-        <div className="dash-score-row">
-          <span>Acoustic</span>
-          <span className="dash-score-track">
-            <span
-              className={`dash-score-fill tone-${verdictFor(pct(data.acoustic_risk_score)).tone}`}
-              style={{ width: `${pct(data.acoustic_risk_score)}%` }}
-            />
-          </span>
-          <span>{pct(data.acoustic_risk_score)}%</span>
-        </div>
-
-        <div className="dash-score-row">
-          <span>Linguistic</span>
-          <span className="dash-score-track">
-            <span
-              className={`dash-score-fill tone-${verdictFor(pct(data.linguistic_risk_score)).tone}`}
-              style={{ width: `${pct(data.linguistic_risk_score)}%` }}
-            />
-          </span>
-          <span>{pct(data.linguistic_risk_score)}%</span>
-        </div>
-
-        <div className="dash-score-row">
-          <span>Fused</span>
-          <span className="dash-score-track">
-            <span
-              className={`dash-score-fill tone-${verdict.tone}`}
-              style={{ width: `${finalRisk}%` }}
-            />
-          </span>
-          <span>{finalRisk}%</span>
-        </div>
-
-        <span className={`dash-badge tone-${verdict.tone}`}>{verdict.label}</span>
-
-        <h3 style={{ marginTop: 24 }}>Challenge Status</h3>
-        <span className="dash-status-pill">
-          <span className="dash-dot-pulse" />
-          {data.challenge_triggered ? 'Triggered' : 'Not triggered'}
-        </span>
-      </div>
-    </div>
-  )
+function Results({ data }) {
+  const state = verdict(data)
+  const fusion = data.fusion_breakdown || {}
+  const scores = fusion.raw_scores || { acoustic: data.acoustic_risk_score, linguistic: data.linguistic_risk_score, context: data.context_risk }
+  const weights = fusion.weights || { acoustic: .55, linguistic: .25, context: .2 }
+  const signals = [{ key: 'acoustic', label: 'Acoustic', text: 'How the voice sounds' }, { key: 'linguistic', label: 'Linguistic', text: 'What the caller says' }, { key: 'context', label: 'Context', text: 'The situation around it' }]
+  const base = signals.every(s => Number.isFinite(scores[s.key]) && Number.isFinite(weights[s.key])) ? signals.reduce((n, s) => n + scores[s.key] * weights[s.key], 0) : null
+  const adjustments = base === null ? null : data.final_risk_score - base
+  const reasons = Array.isArray(data.explainability?.diagnostic_reasons) ? data.explainability.diagnostic_reasons : []
+  return <motion.div className="result-stack" id="analysis-results" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .35, staggerChildren: .08 }}><div className="result-heading"><div><Icon name="check" size={17} /><span>Analysis complete <span className="muted">/ {data.name}</span></span></div><span className={`badge ${data.source === 'demo' ? 'demo' : 'neutral'}`}>{data.source === 'demo' ? 'DEMO · SIMULATED EVIDENCE' : 'API ANALYSIS'}</span></div>{data.source === 'demo' && <div className="demo-disclosure">This is a prepared scenario. Scores and forensic values illustrate the workflow.</div>}<div className="results-grid"><motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .3 }}><Panel title="Conversation" meta={<span className="badge neutral">{data.lang_detected || 'Auto'}</span>}><Waveform active /><span className="waveform-disclosure">Illustrative waveform · not a measured signal</span><div className="transcript-label"><span className="eyebrow">TRANSCRIPT</span><span className="muted small">{data.source === 'demo' ? 'Prepared sample' : 'Service transcription'}</span></div><blockquote className="transcript">{data.transcript || 'No transcript was returned for this recording.'}</blockquote><div className="chips">{data.flags.length ? data.flags.map(f => <span key={f}>{f.replaceAll('_', ' ')}</span>) : <span className="no-flags">No language flags returned</span>}</div></Panel></motion.div><motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .3, delay: .06 }}><Panel title="Combined risk" meta={<span className={`badge ${state.tone}`}>{state.label}</span>}><div className="risk-summary"><RiskGauge value={data.final_risk_score} tone={state.tone} scores={scores} /><p>{data.quality === 'insufficient' ? 'Insufficient audio. Record a longer, clearer sample.' : data.challenge_triggered ? 'Pause and verify before acting on this conversation.' : 'Review the evidence alongside your usual verification process.'}</p></div><div className="signal-bars">{signals.map(s => <div className="signal-row" key={s.key}><div><span>{s.label}</span><span className="mono">{percent(scores[s.key])}</span></div><div className="signal-track"><motion.span initial={{ scaleX: 0 }} animate={{ scaleX: Number.isFinite(scores[s.key]) ? scores[s.key] : 0 }} transition={{ duration: .5 }} /></div></div>)}</div><p className="risk-footnote">A risk signal, not proof of identity.</p></Panel></motion.div></div><motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .3, delay: .12 }}><Panel title="The signals behind the score" meta={<span className="muted small">Multi-modal fusion</span>}><SignalFusion scores={scores} weights={weights} final={data.final_risk_score} source={data.source} /><div className="fusion-grid">{signals.map((s, i) => <div key={s.key} className="fusion-cell"><span className="eyebrow">0{i + 1} / {s.label.toUpperCase()}</span><div><strong>{percent(scores[s.key])}</strong><span>× {weights[s.key]?.toFixed(2) ?? '—'}</span></div><p>{s.text}</p></div>)}<div className="fusion-total"><span className="eyebrow">WEIGHTED BASE</span><strong>{percent(base)}</strong><p>Before service adjustments</p></div></div>{adjustments !== null && Math.abs(adjustments) > .005 && <p className="fusion-note">Service adjustments / smoothing: {adjustments >= 0 ? '+' : ''}{(adjustments * 100).toFixed(1)} points. Final risk: {percent(data.final_risk_score)}.{fusion.contributions?.prosody_penalty ? ` Includes ${percent(fusion.contributions.prosody_penalty)} prosody adjustment.` : ''}</p>}</Panel></motion.div><motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .3, delay: .18 }}><Panel title="Why this conversation needs a closer look" meta={<Icon name="search" size={17} />}><EvidenceCarousel data={data} /><div className="forensic-grid"><div className="forensic-metric"><span>Pitch micro-jitter</span><strong>{Number.isFinite(data.explainability?.jitter_pct) ? `${data.explainability.jitter_pct.toFixed(2)}%` : '—'}</strong><p>Variation in pitch between vocal cycles.</p></div><div className="forensic-metric"><span>Spectral discontinuity</span><strong>{Number.isFinite(data.explainability?.spectral_discontinuity) ? data.explainability.spectral_discontinuity.toFixed(2) : '—'}</strong><p>Service-reported discontinuity score, not a frequency.</p></div><div className="forensic-reasons">{reasons.length ? reasons.map((reason, i) => <p key={i}><Icon name="chevron" size={13} />{reason}</p>) : <p>No additional diagnostic evidence was returned.</p>}</div></div></Panel></motion.div>{data.challenge_triggered && data.quality !== 'insufficient' && <div className="challenge-banner"><span className="challenge-banner-icon"><Icon name="shield" size={27} /></span><div><h3>Take a moment. Verify the caller.</h3><p>Elevated risk triggered a step-up recommendation. Ask for a fresh spoken response.</p></div><Link className="button primary" to="/dashboard/challenge">Verify liveness <Icon name="arrow" size={17} /></Link></div>}</motion.div>
 }

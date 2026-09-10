@@ -1,64 +1,13 @@
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAnalysis } from '../lib/AnalysisContext'
-import './Dashboard.css'
-
-function pct(x) {
-  return Math.round((x ?? 0) * 100)
-}
-
-function verdictFor(risk) {
-  if (risk >= 70) return { label: 'High Risk', tone: 'high' }
-  if (risk >= 40) return { label: 'Caution', tone: 'caution' }
-  return { label: 'Safe', tone: 'safe' }
-}
-
+import { percent, verdict } from '../lib/analysis'
+import { Icon, PageHeading, Panel, EmptyState } from '../components/ui'
+import { RiskGauge } from '../components/SignalGraphics'
 export default function AlertBanner() {
-  const { data } = useAnalysis()
-
-  if (!data) {
-    return (
-      <div className="dash-page">
-        <h1 className="dash-title">Alert</h1>
-        <p className="dash-subtitle">Fired when the fused risk score crosses a threshold</p>
-        <p className="dash-empty-hint">
-          No active call. Go to Live Monitoring and run an analysis first.
-        </p>
-      </div>
-    )
-  }
-
-  const finalRisk = pct(data.final_risk_score)
-  const verdict = verdictFor(finalRisk)
-
-  return (
-    <div className="dash-page">
-      <h1 className="dash-title">Alert</h1>
-      <p className="dash-subtitle">Fired when the fused risk score crosses a threshold</p>
-
-      <div
-        className="dash-card"
-        style={{
-          borderColor:
-            verdict.tone === 'high' ? 'rgba(255,77,77,0.4)' :
-            verdict.tone === 'caution' ? 'rgba(245,166,35,0.4)' :
-            'rgba(46,204,113,0.4)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <span className={`dash-badge tone-${verdict.tone}`} style={{ fontSize: 16, padding: '8px 16px' }}>
-            {verdict.label} — {finalRisk}%
-          </span>
-        </div>
-
-        <h3>Transcript</h3>
-        <div className="dash-transcript" tabIndex={0} role="region" aria-label="Flagged transcript">{data.transcript}</div>
-
-        <h3 style={{ marginTop: 20 }}>Flags</h3>
-        <div className="dash-flag-list">
-          {data.flags.map((f) => (
-            <span className="dash-flag" key={f}>{f.replaceAll('_', ' ')}</span>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
+  const { data, history, selectSession } = useAnalysis()
+  const [selectedId, setSelectedId] = useState(null)
+  const alerts = history.filter(row => row.challenge_triggered || verdict(row).tone === 'high')
+  const selected = alerts.find(row => row.session_id === selectedId) || alerts.find(row => row.session_id === data?.session_id) || alerts[0]
+  return <><PageHeading eyebrow="RISK INTELLIGENCE" title="Signals worth your attention." action={<span className="badge caution">{alerts.length} TO REVIEW</span>}>Review elevated conversations and decide where to add verification.</PageHeading>{!selected ? <Panel><EmptyState icon="shield" title="No elevated sessions this visit.">Analyze a recording or explore a demo to inspect its risk signals.</EmptyState><div className="center"><Link className="button primary" to="/dashboard">Analyze a conversation <Icon name="arrow" size={17} /></Link></div></Panel> : <div className="alerts-layout"><Panel title="Review queue" meta={<span className="muted small">This visit</span>} className="alert-queue">{alerts.map(row => <button key={row.session_id} className={`alert-queue-item ${selected.session_id === row.session_id ? 'selected' : ''}`} onClick={() => setSelectedId(row.session_id)}><span className="alert-queue-icon"><Icon name="alert" size={18} /></span><span><strong>{row.name}</strong><small>{row.source === 'demo' ? 'Demo' : 'API analysis'} · {new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small></span><b>{percent(row.final_risk_score)}</b></button>)}</Panel><div><Panel title="Conversation risk" meta={<span className={`badge ${verdict(selected).tone}`}>{verdict(selected).label}</span>}><div className="alert-detail-top"><RiskGauge value={selected.final_risk_score} tone={verdict(selected).tone} scores={{ acoustic: selected.acoustic_risk_score, linguistic: selected.linguistic_risk_score, context: selected.context_risk }} /><div><span className={`badge ${selected.source === 'demo' ? 'demo' : 'neutral'}`}>{selected.source === 'demo' ? 'PREPARED DEMO' : 'API RESULT'}</span><h2>{selected.name}</h2><p>Pause before acting on sensitive requests. Verify through a trusted channel.</p></div></div><span className="eyebrow">CONVERSATION EXCERPT</span><blockquote className="transcript">{selected.transcript || 'No transcript available.'}</blockquote><div className="chips">{selected.flags.map(flag => <span key={flag}>{flag.replaceAll('_', ' ')}</span>)}</div></Panel><div className="challenge-banner"><span className="challenge-banner-icon"><Icon name="shield" /></span><div><h3>Add a layer of verification.</h3><p>A fresh spoken challenge helps assess the response.</p></div><Link className="button primary" to="/dashboard/challenge" onClick={() => selectSession(selected)}>Check liveness <Icon name="arrow" size={16} /></Link></div></div></div>}</>
 }

@@ -4,7 +4,7 @@ import time
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.schemas.contracts import InitMessage
-from app.services import ring_buffer, vad, preprocess, model_registry, prosody, linguistic, speaker, fusion, alerts
+from app.services import ring_buffer, vad, preprocess, model_registry, prosody, linguistic, speaker, fusion, alerts, explainability
 from app.core.config import get_settings
 
 router = APIRouter()
@@ -66,7 +66,7 @@ async def ws_stream(ws: WebSocket):
 
             spoof = model_registry.score_spoof(window)
             pflag = prosody.prosody_flag(window)
-            ling, _ = linguistic.score_text(transcript_acc)
+            ling, matched_hits = linguistic.score_text(transcript_acc)
             spk = speaker.match_score(None)
             ctx = 0.2  # TODO: caller-ID/contact/txn enrichment via init.call_id
             if init.policy_profile == "high-value-txn":
@@ -81,14 +81,26 @@ async def ws_stream(ws: WebSocket):
             else:
                 tel_action = action
 
+            fusion_bd = fusion.get_fusion_breakdown(spoof, ling, ctx, pflag == "flat")
+            forensic_rep = explainability.generate_forensic_report(
+                window, matched_hits, spoof, pflag
+            )
+
             await ws.send_text(json.dumps({
                 "seq": seq, "server_ts": int(time.time() * 1000), "vad": True,
                 "quality": quality, "spoof_score": round(spoof, 3),
+                "acoustic_risk_score": round(spoof, 3),
                 "speaker_match_score": spk, "prosody_flag": pflag,
-                "linguistic_score": round(ling, 3), "transcript_delta": transcript_acc,
-                "context_risk": ctx, "final_risk": round(final, 3), "state": state,
+                "linguistic_score": round(ling, 3),
+                "linguistic_risk_score": round(ling, 3),
+                "transcript_delta": transcript_acc,
+                "context_risk": ctx, "final_risk": round(final, 3),
+                "final_risk_score": round(final, 3), "state": state,
                 "action": tel_action, "model_ver": model_registry.model_version(),
                 "policy_ver": settings.policy_ver,
+                "fusion_breakdown": fusion_bd,
+                "explainability": forensic_rep,
             }))
+
     except WebSocketDisconnect:
         return

@@ -41,3 +41,32 @@ def fuse(
         # challenge only on high; review asks verify
         return final, "review", "verify"
     return final, "low", "continue"
+
+
+def get_fusion_breakdown(
+    spoof: float,
+    linguistic: float,
+    context_risk: float,
+    prosody_flat: bool = False,
+) -> dict:
+    """Return transparent mathematical contributions for UI and explainability."""
+    w_spoof, w_ling, w_ctx = 0.55, 0.25, 0.20
+    acoustic_contrib = round(w_spoof * spoof, 3)
+    linguistic_contrib = round(w_ling * linguistic, 3)
+    context_contrib = round(w_ctx * context_risk, 3)
+    prosody_penalty = 0.05 if prosody_flat else 0.0
+    raw = acoustic_contrib + linguistic_contrib + context_contrib + prosody_penalty
+    
+    return {
+        "weights": {"acoustic": w_spoof, "linguistic": w_ling, "context": w_ctx},
+        "raw_scores": {"acoustic": round(spoof, 3), "linguistic": round(linguistic, 3), "context": round(context_risk, 3)},
+        "contributions": {
+            "acoustic": acoustic_contrib,
+            "linguistic": linguistic_contrib,
+            "context": context_contrib,
+            "prosody_penalty": prosody_penalty,
+        },
+        "calculated_raw": round(min(0.99, max(0.0, raw)), 3),
+        "formula_display": f"Risk = (0.55 × {spoof*100:.0f}%) + (0.25 × {linguistic*100:.0f}%) + (0.20 × {context_risk*100:.0f}%)"
+    }
+
