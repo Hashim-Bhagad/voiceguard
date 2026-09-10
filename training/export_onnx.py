@@ -69,6 +69,12 @@ def main() -> None:
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    # dynamo=False selects the legacy TorchScript exporter on purpose. torch 2.14's
+    # dynamo exporter bakes the example batch size into a Reshape inside AASIST's
+    # graph-attention head: the result passes at batch 1 but fails at batch 3 with
+    # "cannot be reshaped ... Input shape:{3,29,24}, requested shape:{29,24}".
+    # The legacy path honours dynamic_axes correctly here. The batch-3 check below
+    # is what catches a regression if this ever changes again.
     torch.onnx.export(
         export_model,
         torch.zeros(1, samples, dtype=torch.float32),
@@ -77,6 +83,7 @@ def main() -> None:
         output_names=["spoof_logit"],
         opset_version=args.opset,
         dynamic_axes={"waveform": {0: "batch"}, "spoof_logit": {0: "batch"}},
+        dynamo=False,
     )
 
     session = ort.InferenceSession(str(output), providers=["CPUExecutionProvider"])

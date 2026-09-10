@@ -73,8 +73,23 @@ class PolicyThresholds(BaseModel):
     high_thr: float = 0.7
 
 
+# Thresholds apply to final_risk, NOT to the raw spoof score. Fusion is
+#     final_risk = 0.55*spoof + 0.25*linguistic + 0.20*context
+# and today linguistic is always 0.0 while context is a constant 0.2 for the
+# "standard" profile, so in practice:
+#     final_risk = 0.55*spoof + 0.04       (range 0.04 .. 0.59)
+# The old high_thr of 0.70 was therefore unreachable -- even spoof=1.0 capped at
+# 0.59 and reported "review", never "high".
+#
+# These values are derived from the measured operating points in
+# scripts/tune_decision_layer.py (454-clip held-out test split, mean aggregation):
+#     spoof 0.944 -> 90% clone recall at 39% FPR  -> final_risk 0.559
+#     spoof 0.564 -> boundary below which we stay "low"  -> final_risk 0.350
+# high_thr is set just under 0.559 so the 90%-recall point trips "high".
+#
+# Re-derive these after any retrain; do not hand-edit them.
 POLICY_DEFAULTS: dict[str, PolicyThresholds] = {
-    "standard": PolicyThresholds(low_thr=0.35, high_thr=0.70),
-    "high-value-txn": PolicyThresholds(low_thr=0.25, high_thr=0.55),
-    "privileged-access": PolicyThresholds(low_thr=0.20, high_thr=0.50),
+    "standard": PolicyThresholds(low_thr=0.35, high_thr=0.55),
+    "high-value-txn": PolicyThresholds(low_thr=0.28, high_thr=0.48),
+    "privileged-access": PolicyThresholds(low_thr=0.25, high_thr=0.45),
 }
