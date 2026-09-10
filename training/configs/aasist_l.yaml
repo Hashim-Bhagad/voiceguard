@@ -21,8 +21,9 @@ model:
 
 runtime:
   device: auto          # auto | cpu | cuda
-  # Torch intra-op threads for the model itself. Leave headroom for dataloader
-  # workers; this box has 12 logical cores.
+  # Measured on the reference machine (i5-12450H, 12 logical cores): throughput is
+  # flat from 4 to 8 threads (1.52 -> 1.54 clips/s) and *drops* at 12 (1.30), so
+  # oversubscribing hurts. Run scripts/benchmark_cpu.py on your own box.
   num_threads: 8
   # Decoded-audio cache. First epoch pays FLAC decode + resample, later epochs
   # read float32 .npy instead. Set to null to disable.
@@ -33,8 +34,14 @@ data:
   train_split: train
   dev_split: dev
   test_split: test
-  batch_size: 16
-  num_workers: 3
+  # AASIST-L is activation-heavy despite having only 85K parameters: roughly
+  # 0.19 GiB of peak RSS per clip in the batch. Batch 16 needs ~5 GiB and was
+  # OOM-killed on a 15 GiB laptop. Batch 4 peaks at ~2.0 GiB. Throughput is
+  # identical either way (~1.54 clips/s), so the small batch costs nothing here.
+  batch_size: 4
+  # Each worker is a separate process that imports torch (~300 MiB) and competes
+  # for cores. Keep this low on a laptop.
+  num_workers: 2
   # Sample train batches inversely to (label x language) frequency. Without this,
   # a large English spoof corpus next to a smaller Indic bona-fide corpus makes
   # "English" and "spoof" correlated inside each batch.
@@ -67,7 +74,9 @@ train:
   weight_decay: 0.0001
   class_weights: [1.0, 1.0]
   grad_clip_norm: 5.0
-  grad_accum_steps: 1
+  # batch_size 4 x 4 = effective batch 16, matching what the upstream learning
+  # rate was tuned for, without the memory cost of a literal batch of 16.
+  grad_accum_steps: 4
   # Mixed precision is a CUDA feature here. On CPU it is ignored: bf16 autocast
   # without AVX512-BF16 is slower than fp32 on this hardware.
   mixed_precision: true

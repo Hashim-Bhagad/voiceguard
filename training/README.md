@@ -172,14 +172,55 @@ augmentation itself the discriminative feature. If `augmentation.noise_dir` or
 `rir_dir` is absent, the loader warns and substitutes a synthetic generator
 rather than silently disabling the augmentation.
 
-### Expect CPU training to be slow
+### Measured CPU cost, and why batch size matters more than you'd expect
 
-Measured on this project's reference machine (Intel i5-12450H, 12 logical cores,
-no NVIDIA GPU), AASIST-L fine-tuning ran at roughly **1.5 clips/s** at batch 16 —
-about 12 minutes per epoch over 1,108 training clips. Scale that to your corpus
-before planning a run, and use `--max-hours` plus `--resume`. The model is small
-in parameters but its 2D residual stack over a 70-channel sinc-conv front end is
-what costs the time, not the parameter count.
+Run `scripts/benchmark_cpu.py` on your own machine before planning a long run. It
+caps its own address space with `RLIMIT_AS`, so a bad probe dies alone instead of
+inviting the OOM killer.
+
+On the reference machine (Intel i5-12450H, 12 logical cores, 15 GiB RAM, no
+NVIDIA GPU):
+
+| batch | peak RSS |
+|---|---|
+| 1 | 0.77 GiB |
+| 2 | 1.19 GiB |
+| 4 | 1.95 GiB |
+| 6 | 2.69 GiB |
+
+AASIST-L has 85,306 parameters but costs roughly **0.19 GiB of peak RSS per clip
+in the batch**, because the sinc-conv front end emits a `(batch, 70, 64472)` map
+and the first encoder block expands it to `(batch, 32, 23, 21490)` — about 1 GiB
+for one tensor at batch 16, before autograd saves what it needs for backward.
+Batch 16 was OOM-killed at 5.1 GiB on this laptop. Note that zram swap is
+compressed RAM, so it is not real headroom.
+
+Throughput, at the safe batch:
+
+| threads | train clips/s | infer clips/s |
+|---|---|---|
+| 4 | 1.52 | 3.29 |
+| 8 | **1.54** | 3.59 |
+| 12 | 1.30 | 3.38 |
+
+Two things follow. Thread scaling is essentially flat past 4 and **regresses at
+12**, so do not oversubscribe. And throughput is the same at batch 4 as at batch
+16, so the small batch costs nothing here — `batch_size: 4` with
+`grad_accum_steps: 4` keeps the effective batch at 16 for the same wall clock and
+a third of the memory.
+
+Projected wall clock at 1.54 clips/s:
+
+| train clips | 1 epoch | 8 epochs |
+|---|---|---|
+| 1,108 | 13.4 min | 1.8 h |
+| 4,000 | 45 min | 6.0 h |
+| 8,000 | 88 min | 11.8 h |
+| 30,000 | 5.4 h | 43.6 h |
+
+So the full three-source corpus is a multi-day CPU run, not an afternoon. Use
+`train.max_hours` with `--resume` to split it across sittings, or cap the corpus
+with `build_manifest.py --max-per-source-label N` for a first pass.
 
 ---
 
