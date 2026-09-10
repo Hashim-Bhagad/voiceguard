@@ -188,6 +188,91 @@ def download_snapshot(
     )
 
 
+def list_repo_dir(repo_id: str, path: str, token: str | None) -> list[dict]:
+    """List one directory of a dataset repo (non-recursive)."""
+    from huggingface_hub import HfApi
+
+    api = HfApi(token=token)
+    entries = retry(
+        lambda: list(api.list_repo_tree(repo_id, path_in_repo=path, repo_type="dataset")),
+        what=f"{repo_id}:{path} tree",
+    )
+    return [
+        {"path": e.path, "type": "directory" if e.__class__.__name__ == "RepoFolder" else "file"}
+        for e in entries
+    ]
+
+
+def download_files(
+    repo_id: str,
+    *,
+    files: list[str],
+    local_dir: Path,
+    token: str | None,
+    revision: str,
+    attempts: int = 8,
+) -> None:
+    """Download an explicit file list and verify every one arrived.
+
+    Used when we want a small selected subset of a large repo: passing exact
+    paths as allow_patterns keeps the parallel transfer of snapshot_download
+    without pulling the whole tree. Same completeness guarantee as
+    ``download_snapshot`` -- a partial result is never accepted silently.
+    """
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from huggingface_hub import hf_hub_download
+
+    # Deliberately NOT snapshot_download: passing a long explicit allow_patterns
+    # list (~1000 entries) trips an internal "min() iterable argument is empty"
+    # error in huggingface_hub. Per-file hf_hub_download is reliable, and a small
+    # thread pool keeps it fast enough.
+    local_dir = Path(local_dir)
+
+    def fetch(name: str) -> tuple[str, str | None]:
+        try:
+            hf_hub_download(
+                repo_id=repo_id,
+                repo_type="dataset",
+                filename=name,
+                revision=revision,
+                local_dir=str(local_dir),
+                token=token,
+            )
+            return name, None
+        except Exception as exc:  # noqa: BLE001
+            return name, f"{type(exc).__name__}: {str(exc)[:120]}"
+
+    for attempt in range(1, attempts + 1):
+        missing = [name for name in files if not (local_dir / name).is_file()]
+        if not missing:
+            print(f"  all {len(files)} files present")
+            return
+        print(f"  attempt {attempt}/{attempts}: fetching {len(missing)} of {len(files)} files")
+        errors: list[str] = []
+        done = 0
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = [pool.submit(fetch, name) for name in missing]
+            for future in as_completed(futures):
+                _, error = future.result()
+                done += 1
+                if error:
+                    errors.append(error)
+                if done % 100 == 0 or done == len(missing):
+                    print(f"    {done}/{len(missing)} ({len(errors)} errors)")
+        if errors:
+            print(f"  ! {len(errors)} transfer errors, first: {errors[0]}")
+        if attempt < attempts:
+            time.sleep(min(30.0, 2.0 * attempt))
+
+    still = [name for name in files if not (local_dir / name).is_file()]
+    raise RuntimeError(
+        f"{repo_id}: {len(still)} of {len(files)} files still missing after {attempts} attempts "
+        f"(first: {still[0]}). Refusing to continue with a partial download."
+    )
+
+
 def to_mono_16k(wav: np.ndarray, source_rate: int) -> np.ndarray:
     array = np.asarray(wav, dtype=np.float32)
     if array.ndim > 1:
