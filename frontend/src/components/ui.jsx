@@ -24,6 +24,21 @@ const paths = {
 export function Icon({ name = 'shield', size = 20, ...props }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}><path d={paths[name] || paths.shield} /></svg>
 }
+export function AnimatedLogo({ size = 34, className = '' }) {
+  return (
+    <span className={`animated-logo-wrap ${className}`} style={{ width: size, height: size }}>
+      <span className="logo-pulse-ring" aria-hidden="true" />
+      <motion.img
+        src="/logo.png"
+        alt="TRUST and VISHWAS logo"
+        className="animated-logo-img"
+        whileHover={{ scale: 1.08 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 20 }}
+      />
+    </span>
+  )
+}
+
 export function Brand({ compact = false, showTagline = true, className = '' }) {
   const [wordIndex, setWordIndex] = useState(0)
   const words = ['TRUST', 'VISHWAS']
@@ -47,7 +62,7 @@ export function Brand({ compact = false, showTagline = true, className = '' }) {
 
   return (
     <Link to="/" className={`brand ${className}`} aria-label="TRUST and VISHWAS home">
-      <span className="brand-icon"><Icon name="wave" size={22} /></span>
+      <AnimatedLogo size={compact ? 28 : 34} />
       {!compact && (
         <div className="brand-text-container">
           <div className="brand-name-wrap">

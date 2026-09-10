@@ -19,11 +19,11 @@ export default function Landing() {
   const navigate = useNavigate()
   useEffect(() => {
     const media = gsap.matchMedia()
-    media.add('(prefers-reduced-motion: no-preference) and (min-width: 900px)', () => {
+    media.add('(min-width: 900px)', () => {
       gsap.fromTo('.hero-depth', { y: 0 }, { y: 70, ease: 'none', scrollTrigger: { trigger: '.landing-hero', start: 'top top', end: 'bottom top', scrub: .8 } })
       gsap.from('.hero-copy > *', { y: 26, opacity: 0, duration: .7, stagger: .09, ease: 'power3.out', clearProps: 'all' })
     }, root)
-    const pointer = window.matchMedia('(pointer: fine) and (prefers-reduced-motion: no-preference)')
+    const pointer = window.matchMedia('(pointer: fine)')
     let frame = null
     const move = event => {
       if (!pointer.matches || frame !== null) return
