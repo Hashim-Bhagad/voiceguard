@@ -285,7 +285,10 @@ def _stub_datasets_if_broken() -> None:
         def __init__(self, *args, **kwargs):
             raise RuntimeError("`datasets` is stubbed in the clone env (inference only)")
 
+    import importlib.machinery
+
     stub = types.ModuleType("datasets")
+    stub.__spec__ = importlib.machinery.ModuleSpec("datasets", None)  # find_spec() needs one
     stub.__getattr__ = lambda name: _Unavailable  # any `from datasets import X` resolves
     sys.modules["datasets"] = stub
     print("  (datasets unavailable in the clone env; using an inference-only stand-in)")
