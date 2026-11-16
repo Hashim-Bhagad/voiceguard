@@ -26,3 +26,6 @@ __pycache__/
 .venv
 node_modules
 frontend/dist
+
+# Voice-clone generation virtualenv (training/scripts/prepare_data.sh step 7)
+.clone-env
