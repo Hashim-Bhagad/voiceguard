@@ -17,6 +17,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 PY="${PYTHON:-python}"
+# Xet transfers ask the Hub API for a read token per file, and free accounts get
+# 1000 API calls per 5 minutes: a 1,866-file dataset hits that limit. Plain
+# HTTP downloads go through the CDN instead. Set HF_HUB_DISABLE_XET=0 to undo.
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 INDIC_LANGS="${INDIC_LANGS:-hindi marathi tamil bengali}"
 INDIC_MAX_PER_LANG="${INDIC_MAX_PER_LANG:-600}"
