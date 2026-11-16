@@ -223,6 +223,8 @@ class IndicF5:
 
     def __init__(self, token, workdir):
         import torch
+
+        _stub_datasets_if_broken()
         from f5_tts.infer.utils_infer import infer_process, load_model, load_vocoder, preprocess_ref_audio_text
         from f5_tts.model import DiT
         from huggingface_hub import hf_hub_download
@@ -265,6 +267,28 @@ class IndicF5:
         audio, _rate, _ = self._infer(ref_audio, ref_text, text, self.model, self.vocoder,
                                       mel_spec_type="vocos", speed=1.0, device=self.device)
         return np.asarray(audio, dtype=np.float32)  # 24 kHz
+
+
+def _stub_datasets_if_broken() -> None:
+    """f5_tts imports `datasets` (for its training code) at import time. In the clone env
+    that import fails: the system pyarrow needs NumPy 2 and IndicF5 pins NumPy 1.x.
+    Inference never touches it, so stand in an empty module when the real one is broken."""
+    import types
+
+    try:
+        import datasets  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    class _Unavailable:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("`datasets` is stubbed in the clone env (inference only)")
+
+    stub = types.ModuleType("datasets")
+    stub.__getattr__ = lambda name: _Unavailable  # any `from datasets import X` resolves
+    sys.modules["datasets"] = stub
+    print("  (datasets unavailable in the clone env; using an inference-only stand-in)")
 
 
 def _patch_torchaudio_load() -> None:
