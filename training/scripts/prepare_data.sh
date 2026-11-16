@@ -130,12 +130,18 @@ else
     [[ "$engines" == *xtts* ]] && pkgs="$pkgs coqui-tts transformers>=5"
     [[ "$engines" == *indicf5* ]] && pkgs="$pkgs git+https://github.com/ai4bharat/IndicF5.git"
     # shellcheck disable=SC2086
+    # Clones are an extra, not a prerequisite: if this step fails, warn and build the
+    # dataset without them rather than stopping the whole run. Delete data/candidates/
+    # clones.csv (or it never appears) and the next run tries again.
     # (pip's "X requires numpy>=2" warnings are about system packages this env never imports.)
-    "$CLONE_ENV/bin/python" -m pip install -q $pkgs > "$CLONE_ENV/pip.log" 2>&1 || {
-      tail -30 "$CLONE_ENV/pip.log" >&2; echo "pip install for the clone engines failed" >&2; exit 1; }
     # shellcheck disable=SC2086
-    COQUI_TOS_AGREED="${ACCEPT_XTTS_NONCOMMERCIAL:-0}" "$CLONE_ENV/bin/python" scripts/make_clone_spoof.py \
-      --engines $engines --per-language "$CLONES_PER_LANG"
+    if ! "$CLONE_ENV/bin/python" -m pip install -q $pkgs > "$CLONE_ENV/pip.log" 2>&1; then
+      tail -30 "$CLONE_ENV/pip.log" >&2
+      echo "WARNING: installing the clone engines failed; continuing WITHOUT voice clones." >&2
+    elif ! COQUI_TOS_AGREED="${ACCEPT_XTTS_NONCOMMERCIAL:-0}" "$CLONE_ENV/bin/python" \
+        scripts/make_clone_spoof.py --engines $engines --per-language "$CLONES_PER_LANG"; then
+      echo "WARNING: voice-clone generation failed; continuing WITHOUT voice clones." >&2
+    fi
   fi
 fi
 

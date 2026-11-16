@@ -366,13 +366,21 @@ def main() -> None:
         output_root=data_root, min_duration_s=1.0, max_duration_s=15.0,
     )
     engines: dict[str, object] = {}
+    failed: dict[str, str] = {}
     stats = Counter()
     started = time.time()
     with tempfile.TemporaryDirectory() as tmp:
         for i, (lang, engine, speaker, (ref_wav, ref_rate, ref_text), text) in enumerate(work, 1):
+            if engine in failed:
+                continue
             if engine not in engines:
                 print(f"\nloading {engine} ...", flush=True)
-                engines[engine] = XTTS() if engine == "xtts" else IndicF5(token, tmp)
+                try:
+                    engines[engine] = XTTS() if engine == "xtts" else IndicF5(token, tmp)
+                except Exception as exc:  # noqa: BLE001 - keep the other engine's clones
+                    failed[engine] = f"{type(exc).__name__}: {str(exc)[:300]}"
+                    print(f"  ! {engine} could not be loaded, skipping its clones: {failed[engine]}")
+                    continue
             ref_path = Path(tmp) / "ref.wav"
             sf.write(ref_path, ref_wav, ref_rate)
             try:
@@ -395,15 +403,20 @@ def main() -> None:
                 print(f"  {i}/{len(work)}  {dict(stats)}  {rate:.2f} clips/s", flush=True)
             for engine_name in GENERATOR:
                 done = stats[f"{engine_name}:ok"] + stats[f"{engine_name}:rejected"]
-                if done >= 20 and stats[f"{engine_name}:rejected"] > 0.5 * done:
-                    raise SystemExit(f"{engine_name}: more than half of {done} generations failed; "
-                                     "see the messages above.")
+                if (done >= 20 and stats[f"{engine_name}:rejected"] > 0.5 * done
+                        and engine_name not in failed):
+                    failed[engine_name] = f"more than half of {done} generations failed"
+                    print(f"  ! {engine_name}: {failed[engine_name]}; skipping its remaining clones")
 
+    if failed:
+        print(f"\nengines that failed: {failed}")
+    if not writer.rows:
+        raise SystemExit("no clones were produced; see the messages above.")
     print("\n" + writer.summary())
     writer.write_candidate({
         "engines": args.engines, "languages": list(plan), "per_language": args.per_language,
         "max_per_speaker": args.max_per_speaker, "indicvoices_revision": revision,
-        "stats": dict(stats),
+        "stats": dict(stats), "failed_engines": failed,
         "note": "Zero-shot clones of bona-fide speakers in the manifest. speaker_id equals the "
                 "cloned speaker's bona-fide id, so build_manifest.py keeps both in one split.",
     }, name=args.name)
