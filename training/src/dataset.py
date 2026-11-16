@@ -28,6 +28,8 @@ import soxr
 import torch
 from torch.utils.data import Dataset
 
+from src.channel_aug import RAWBOOST_ALGOS, available_codecs, random_codec, rawboost
+
 REQUIRED_COLS = {
     "clip_path", "label", "attack_family", "generator", "language", "speaker_id", "split",
 }
@@ -261,6 +263,18 @@ class Augmenter:
         self.frequency_mask = bool(config.get("frequency_mask", False))
         self.noise_files = self._index(config.get("noise_dir"), "noise_dir", self.noise_prob)
         self.rir_files = self._index(config.get("rir_dir"), "rir_dir", self.rir_prob)
+        # RawBoost (Tak et al., ICASSP 2022) and lossy codec round trips: see src/channel_aug.py.
+        self.rawboost_prob = float(config.get("rawboost_prob", 0.0))
+        self.rawboost_algos = tuple(config.get("rawboost_algos", RAWBOOST_ALGOS))
+        unknown = set(self.rawboost_algos) - set(RAWBOOST_ALGOS)
+        if unknown:
+            raise ValueError(f"augmentation.rawboost_algos: unknown {sorted(unknown)}; "
+                             f"choose from {RAWBOOST_ALGOS}")
+        self.codec_prob = float(config.get("codec_prob", 0.0))
+        self.codecs = available_codecs(config.get("codecs")) if self.codec_prob > 0 else []
+        if self.codec_prob > 0 and not self.codecs:
+            warnings.warn("augmentation.codec_prob > 0 but no codec is usable; codec "
+                          "augmentation is off. Install PyAV: pip install av", stacklevel=2)
 
     def _index(self, directory: str | None, name: str, probability: float) -> list[Path]:
         if not directory or probability <= 0.0:
@@ -285,12 +299,21 @@ class Augmenter:
     def describe(self) -> str:
         noise = f"{len(self.noise_files)} files" if self.noise_files else "synthetic"
         rir = f"{len(self.rir_files)} files" if self.rir_files else "synthetic"
+        codecs = f" ({','.join(self.codecs)})" if self.codecs else ""
         return (
+            f"rawboost_p={self.rawboost_prob} ({','.join(self.rawboost_algos)}) "
             f"narrowband_p={self.narrowband_prob} noise_p={self.noise_prob} ({noise}) "
-            f"rir_p={self.rir_prob} ({rir}) gain=+/-{self.gain_db}dB"
+            f"rir_p={self.rir_prob} ({rir}) codec_p={self.codec_prob if self.codecs else 0}{codecs} "
+            f"gain=+/-{self.gain_db}dB"
         )
 
     def __call__(self, wav: np.ndarray, rng: random.Random, nprng: np.random.Generator) -> np.ndarray:
+        # Order follows the signal path: source/device nuisances first (RawBoost),
+        # then the room and background, and the transmission codec last.
+        if self.rawboost_prob and rng.random() < self.rawboost_prob:
+            algo = self.rawboost_algos[rng.randrange(len(self.rawboost_algos))]
+            wav = rawboost(wav, self.sample_rate, algo, nprng)
+
         if self.narrowband_prob and rng.random() < self.narrowband_prob:
             wav = _narrowband_roundtrip(wav, self.sample_rate, nprng)
 
@@ -312,6 +335,12 @@ class Augmenter:
                 impulse = _synthetic_rir(self.sample_rate, nprng)
             if impulse.size:
                 wav = _apply_rir(wav, impulse)
+
+        if self.codecs and rng.random() < self.codec_prob:
+            peak = float(np.max(np.abs(wav)))
+            if peak > 1.0:  # codecs clip at full scale
+                wav = wav / peak
+            wav = random_codec(wav, self.sample_rate, self.codecs, nprng)
 
         if self.gain_db:
             gain = 10.0 ** (float(nprng.uniform(-self.gain_db, self.gain_db)) / 20.0)

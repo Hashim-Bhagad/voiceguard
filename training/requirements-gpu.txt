@@ -14,6 +14,7 @@ scikit-learn>=1.4
 
 soundfile>=0.12
 soxr>=0.3
+av>=12             # codec augmentation (Opus, MP3, AAC, G.711) in src/channel_aug.py
 librosa>=0.10
 
 pyyaml>=6.0

@@ -374,7 +374,14 @@ class ClipWriter:
         codec: str = "source",
         noise_condition: str = "source",
         subdir: str | None = None,
+        raw_speaker_id: bool = False,
     ) -> bool:
+        """Normalise and write one clip.
+
+        ``speaker_id`` is namespaced as ``<source_dataset>:<id>`` unless
+        ``raw_speaker_id`` is set, for clips (voice clones) that must share an
+        existing, already-namespaced speaker id with another source.
+        """
         if label not in {"bonafide", "spoof"}:
             raise ValueError(f"label must be bonafide or spoof, got {label!r}")
         audio = to_mono_16k(wav, source_rate)
@@ -397,7 +404,7 @@ class ClipWriter:
             "attack_family": attack_family,
             "generator": generator,
             "language": normalise_language(language),
-            "speaker_id": f"{self.source_dataset}:{safe_name(speaker_id)}",
+            "speaker_id": speaker_id if raw_speaker_id else f"{self.source_dataset}:{safe_name(speaker_id)}",
             "codec": codec,
             "noise_condition": noise_condition,
             "source_dataset": self.source_dataset,

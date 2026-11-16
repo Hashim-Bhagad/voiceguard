@@ -27,6 +27,7 @@ scikit-learn~=1.7
 # Audio IO and resampling
 soundfile~=0.13
 soxr~=0.5
+av>=12  # codec augmentation (src/channel_aug.py)
 librosa~=0.11
 
 # Config / progress

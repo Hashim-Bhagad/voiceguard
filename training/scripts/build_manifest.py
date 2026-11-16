@@ -11,7 +11,15 @@ constraints:
    the model can recognise the voice instead of the artifacts.
 2. Generator holdout. Whole TTS/VC families are reserved for dev and test, so the
    reported EER measures generalisation to an unseen synthesiser rather than
-   in-generator recall.
+   in-generator recall. A held-out generator's clips are never moved into train,
+   not even to keep a speaker together: the speaker's other clips move instead.
+
+   Some spoof "generators" are not one synthesiser and cannot be held out as one:
+   In-the-Wild's deepfakes carry no generator label, and our own voice clones are
+   meant to be clones *of the bona-fide speakers*. Those are listed in
+   --speaker-split-generators and split by speaker together with the bona-fide
+   clips, so their test clips are unseen speakers made by a seen tool. eval.py
+   reports them separately from the strict unseen-generator EER.
 3. Per-language label coverage. Reported so you can see immediately whether a
    language appears on only one side of the decision, which is the confound that
    makes a multilingual detector learn language ID instead of spoofing.
@@ -40,11 +48,16 @@ MANIFEST_COLUMNS = CANDIDATE_COLUMNS + ["split"]
 
 
 def assign_generator_holdout(
-    df: pd.DataFrame, dev_generators: list[str], test_generators: list[str]
+    df: pd.DataFrame, dev_generators: list[str], test_generators: list[str],
+    speaker_split: set[str] | frozenset[str] = frozenset(),
 ) -> dict[str, str]:
-    """Map each spoof generator to 'train', 'dev' or 'test'."""
+    """Map each spoof generator to 'train', 'dev' or 'test' ('speaker' = split by speaker)."""
+    clash = speaker_split & set(dev_generators + test_generators)
+    if clash:
+        raise SystemExit(f"{sorted(clash)} cannot be both held out and split by speaker.")
     available = sorted(
-        g for g in df.loc[df.label == "spoof", "generator"].unique() if str(g) != "none"
+        g for g in df.loc[df.label == "spoof", "generator"].unique()
+        if str(g) != "none" and g not in speaker_split
     )
     if not available:
         raise SystemExit("No spoof generators found in the candidate CSVs.")
@@ -62,6 +75,9 @@ def assign_generator_holdout(
             chosen[generator] = target
     for generator in available:
         chosen.setdefault(generator, "train")
+    present = set(df.loc[df.label == "spoof", "generator"].unique())
+    for generator in sorted(speaker_split & present):
+        chosen[generator] = "speaker"
 
     if not any(v == "dev" for v in chosen.values()) or not any(
         v == "test" for v in chosen.values()
@@ -71,7 +87,7 @@ def assign_generator_holdout(
             f"  {available}\n"
             "Pass --dev-generators / --test-generators explicitly."
         )
-    if not any(v == "train" for v in chosen.values()):
+    if not any(v in ("train", "speaker") for v in chosen.values()):
         raise SystemExit("Every generator was held out, leaving no spoof data to train on.")
     return chosen
 
@@ -98,6 +114,44 @@ def split_speakers(
         else:
             assignment[speaker] = "test"
     return assignment
+
+
+SPLIT_RANK = {"train": 0, "dev": 1, "test": 2}
+
+
+def resolve_speaker_conflicts(df: pd.DataFrame, pinned: pd.Series) -> None:
+    """Put every speaker in one split without ever moving a held-out generator into train.
+
+    Held-out (dev/test) generator clips are immovable. If a speaker has any, the
+    speaker's other clips (bona-fide, speaker-split spoofs, train-generator spoofs)
+    join them; train-generator spoofs in test are fine, they only count as "seen"
+    in eval.py. Otherwise the speaker goes to the split holding most of their clips,
+    as before.
+
+    The old rule ("majority wins") silently moved In-the-Wild's held-out test spoofs
+    into train whenever the same celebrity's real clips outnumbered them.
+    """
+    moved: dict[str, int] = defaultdict(int)
+    conflicts = 0
+    for speaker, group in df.groupby("speaker_id"):
+        if group.split.nunique() <= 1:
+            continue
+        conflicts += 1
+        is_pinned = pinned.loc[group.index]
+        held = group.loc[is_pinned & group.split.isin(["dev", "test"]), "split"]
+        if held.nunique() > 1:
+            raise SystemExit(
+                f"speaker {speaker!r} has clips from held-out generators in both dev and test; "
+                "give that source per-generator speaker ids or hold the generators out together."
+            )
+        target = held.iloc[0] if len(held) else group.split.value_counts().idxmax()
+        movable = group.index[~(is_pinned & group.split.isin(["dev", "test"])).to_numpy()]
+        for index in movable:
+            if df.at[index, "split"] != target:
+                moved[f"{df.at[index, 'label']} -> {target}"] += 1
+                df.at[index, "split"] = target
+    if conflicts:
+        print(f"\n  resolved {conflicts} speakers that straddled splits; rows moved: {dict(moved)}")
 
 
 def cap_per_group(
@@ -168,8 +222,14 @@ def main() -> None:
         help="Spoof generators reserved for dev (unseen during training)",
     )
     parser.add_argument(
-        "--test-generators", nargs="*", default=["speechify", "in_the_wild_unknown"],
+        "--test-generators", nargs="*", default=["speechify", "hexgrad_kokoro"],
         help="Spoof generators reserved for test (unseen during training)",
+    )
+    parser.add_argument(
+        "--speaker-split-generators", nargs="*",
+        default=["in_the_wild_unknown", "xtts_v2_clone", "indicf5_clone"],
+        help="Spoof 'generators' split by speaker like bona-fide clips instead of held out "
+             "whole: unlabelled mixes (In-the-Wild) and clones of the bona-fide speakers",
     )
     parser.add_argument("--train-ratio", type=float, default=0.7)
     parser.add_argument("--dev-ratio", type=float, default=0.15)
@@ -224,46 +284,39 @@ def main() -> None:
     rng = np.random.default_rng(args.seed)
 
     # --- spoof rows follow their generator's holdout assignment -------------
-    generator_split = assign_generator_holdout(df, args.dev_generators, args.test_generators)
+    speaker_split = {g.strip().lower() for g in args.speaker_split_generators}
+    generator_split = assign_generator_holdout(
+        df, args.dev_generators, args.test_generators, speaker_split
+    )
     print("\ngenerator -> split")
     for generator, split in sorted(generator_split.items()):
         print(f"  {generator:24s} {split}")
 
     df["split"] = pd.NA
-    spoof_mask = df.label == "spoof"
-    df.loc[spoof_mask, "split"] = df.loc[spoof_mask, "generator"].map(generator_split)
+    # Spoof rows of a real generator take their generator's split and are pinned there.
+    pinned = (df.label == "spoof") & ~df.generator.isin(speaker_split)
+    df.loc[pinned, "split"] = df.loc[pinned, "generator"].map(generator_split)
 
-    # --- bona-fide rows are split by speaker, per language ------------------
+    # --- bona-fide rows (and speaker-split spoofs) are split by speaker -----
     ratios = (args.train_ratio, args.dev_ratio, 1.0 - args.train_ratio - args.dev_ratio)
     if min(ratios) <= 0:
         raise SystemExit(f"Invalid split ratios {ratios}; they must all be positive.")
-    bona_mask = df.label == "bonafide"
+    by_speaker = ~pinned
     speaker_assignment: dict[str, str] = {}
-    for language, group in df[bona_mask].groupby("language"):
+    for language, group in df[by_speaker].groupby("language"):
         assignment = split_speakers(list(group.speaker_id.unique()), ratios, rng)
         speaker_assignment.update(assignment)
         counts: dict[str, int] = defaultdict(int)
         for split in assignment.values():
             counts[split] += 1
-        print(f"  bona-fide {language}: {len(assignment)} speakers -> {dict(counts)}")
-    df.loc[bona_mask, "split"] = df.loc[bona_mask, "speaker_id"].map(speaker_assignment)
+        print(f"  by-speaker {language}: {len(assignment)} speakers -> {dict(counts)}")
+    df.loc[by_speaker, "split"] = df.loc[by_speaker, "speaker_id"].map(speaker_assignment)
 
     unassigned = int(df.split.isna().sum())
     if unassigned:
         raise SystemExit(f"{unassigned} rows could not be assigned a split (internal error).")
 
-    # A spoof speaker must not also appear as a bona-fide speaker in another split.
-    conflicts = []
-    for speaker, group in df.groupby("speaker_id"):
-        if group.split.nunique() > 1:
-            conflicts.append((speaker, sorted(set(group.split))))
-    if conflicts:
-        print(f"\n  resolving {len(conflicts)} speakers that straddled splits")
-        for speaker, _ in conflicts:
-            # Send every clip of the speaker to the split holding most of them.
-            rows = df.speaker_id == speaker
-            winner = df.loc[rows, "split"].value_counts().idxmax()
-            df.loc[rows, "split"] = winner
+    resolve_speaker_conflicts(df, pinned)
 
     output = Path(args.out).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -286,6 +339,7 @@ def main() -> None:
                 "generator_split": generator_split,
                 "dev_generators": args.dev_generators,
                 "test_generators": args.test_generators,
+                "speaker_split_generators": sorted(speaker_split),
                 "max_per_source_label": args.max_per_source_label,
             },
             indent=2,

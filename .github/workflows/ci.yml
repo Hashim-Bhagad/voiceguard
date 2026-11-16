@@ -60,4 +60,5 @@ jobs:
           python scripts/resolve_pretrained.py
       - run: python tests/test_src.py
       - run: python tests/test_ingest.py
+      - run: python tests/test_manifest.py
       - run: bash -n scripts/prepare_data.sh

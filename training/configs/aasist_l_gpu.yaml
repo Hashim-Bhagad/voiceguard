@@ -41,12 +41,22 @@ data:
   balance_by: [label, language]
 
 augmentation:
-  narrowband_prob: 0.40
+  # RawBoost (Tak et al., ICASSP 2022): LnL convolutive, ISD impulsive and SSI
+  # stationary noise on the raw waveform; one algorithm per augmented clip.
+  rawboost_prob: 0.40
+  rawboost_algos: [lnl, isd, ssi, lnl_isd]
+  # Telephony 8 kHz round trip. Lowered from 0.40: G.711 in the codec list below
+  # now covers the same channel.
+  narrowband_prob: 0.20
   noise_prob: 0.40
   rir_prob: 0.20
   gain_db: 3.0
   snr_db_range: [5.0, 20.0]
   frequency_mask: false
+  # Lossy codec round trip, applied last (it is the transmission channel): Opus at
+  # WhatsApp/VoIP bitrates, MP3, AAC and G.711. Needs PyAV (pip install av).
+  codec_prob: 0.40
+  codecs: [opus, mp3, aac, g711_mulaw, g711_alaw]
   noise_dir: data/augmentation/musan
   rir_dir: data/augmentation/rirs
 

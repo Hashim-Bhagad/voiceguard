@@ -71,6 +71,37 @@ check("augmentation changed the signal", not np.allclose(augmented, clean))
 check("augmentation preserved length", len(augmented) == 64600)
 check("augmentation stayed in range", float(np.max(np.abs(augmented))) <= 1.0 + 1e-6)
 
+print("== RawBoost and codec round trips ==")
+from src.channel_aug import (  # noqa: E402
+    CODECS, RAWBOOST_ALGOS, available_codecs, codec_roundtrip, rawboost,
+)
+
+speech_like = (np.sin(2 * np.pi * 220 * np.arange(64600) / 16000)
+               * np.sin(2 * np.pi * 3 * np.arange(64600) / 16000)).astype(np.float32) * 0.3
+for algo in RAWBOOST_ALGOS:
+    out = rawboost(speech_like, 16000, algo, np.random.default_rng(1))
+    check(f"rawboost {algo}: same length, finite, changed",
+          len(out) == len(speech_like) and np.isfinite(out).all() and not np.allclose(out, speech_like))
+    level = float(np.sqrt(np.mean(out ** 2)) / np.sqrt(np.mean(speech_like ** 2)))
+    check(f"rawboost {algo}: level preserved", 0.9 < level < 1.1, f"ratio={level:.3f}")
+check("rawboost is seeded", np.allclose(rawboost(speech_like, 16000, "lnl", np.random.default_rng(5)),
+                                        rawboost(speech_like, 16000, "lnl", np.random.default_rng(5))))
+usable = available_codecs()
+check("PyAV can encode every codec in the GPU config", set(usable) == set(CODECS), usable)
+for name in usable:
+    rate = CODECS[name].bitrates[0] if CODECS[name].bitrates else None
+    out = codec_roundtrip(speech_like, 16000, name, rate)
+    # Lossy but time-aligned: still strongly correlated with the input at lag 0.
+    corr = float(np.corrcoef(out, speech_like)[0, 1])
+    check(f"codec {name}: same length and aligned", len(out) == len(speech_like) and corr > 0.8,
+          f"corr={corr:.3f}")
+full = Augmenter({"rawboost_prob": 1.0, "codec_prob": 1.0, "gain_db": 0.0}, 16000)
+out = full(speech_like.copy(), random.Random(3), np.random.default_rng(3))
+check("augmenter with rawboost + codec keeps length and range",
+      len(out) == 64600 and float(np.max(np.abs(out))) <= 1.0 + 1e-6 and np.isfinite(out).all())
+check("describe() reports rawboost and codecs", "rawboost_p=1.0" in full.describe()
+      and "opus" in full.describe(), full.describe())
+
 print("== manifest validation ==")
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)

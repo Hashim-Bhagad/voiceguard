@@ -183,6 +183,22 @@ def main() -> None:
     )
     print(f"\nspoof generators in {args.eval_split} that were unseen in train: {unseen}")
 
+    # The strict number: every genuine clip vs only the spoofs whose generator never
+    # appeared in train. Speaker-split sources (In-the-Wild, our clones) are unseen
+    # speakers from seen tools; they count in the overall EER above, not in this one.
+    strict = evaluated[(evaluated.label == "bonafide") | evaluated.generator.isin(unseen)]
+    unseen_eer = None
+    if strict.label.nunique() == 2:
+        unseen_eer, _ = eer_and_threshold(strict.target.to_numpy(), strict.score.to_numpy())
+        n_spoof = int((strict.label == "spoof").sum())
+        print(f"{args.eval_split} EER on unseen generators only: {unseen_eer:.4f} "
+              f"({int((strict.label == 'bonafide').sum())} genuine vs {n_spoof} unseen-generator spoofs)")
+    seen = evaluated[(evaluated.label == "spoof") & ~evaluated.generator.isin(unseen)]
+    if len(seen):
+        print(f"  seen-tool spoofs of unseen speakers: {len(seen)} "
+              f"({', '.join(sorted(seen.generator.unique()))}), "
+              f"missed at the {args.threshold_split} threshold: {(seen.score < threshold).mean():.4f}")
+
     metrics = {
         "checkpoint": str(checkpoint),
         "epoch": blob.get("epoch"),
@@ -200,6 +216,7 @@ def main() -> None:
         "per_language_eer": language_eer,
         "groups": groups,
         "unseen_generators_in_eval": unseen,
+        "eval_eer_unseen_generators": unseen_eer,
     }
     out_json = Path(args.out_json) if args.out_json else checkpoint.parent / (
         f"metrics_{args.eval_split}.json"
