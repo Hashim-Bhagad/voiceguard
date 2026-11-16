@@ -96,8 +96,9 @@ if [[ "$MAKE_CLONES" != "1" ]]; then
   echo "skip: MAKE_CLONES=0"
 elif have clones; then
   echo "skip (exists)"
-elif ! "$PY" -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)"; then
-  echo "skip: no GPU. Clones need one (set MAKE_CLONES=0 to silence this)."
+elif [[ "${CLONE_ALLOW_CPU:-0}" != "1" ]] && ! "$PY" -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)"; then
+  echo "skip: no GPU. Clones need one (set MAKE_CLONES=0 to silence this, or CLONE_ALLOW_CPU=1"
+  echo "      to generate a handful slowly on CPU)."
 else
   engines=""
   for engine in $CLONE_ENGINES; do
