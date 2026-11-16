@@ -124,10 +124,14 @@ else
       }
     fi
     pkgs=""
-    [[ "$engines" == *xtts* ]] && pkgs="$pkgs coqui-tts"
+    # coqui-tts imports GPT-2 classes that the training stack's Transformers 4.x (from
+    # the system site-packages) cannot provide under NumPy 1.x, so pin 5.x in here.
+    [[ "$engines" == *xtts* ]] && pkgs="$pkgs coqui-tts transformers>=5"
     [[ "$engines" == *indicf5* ]] && pkgs="$pkgs git+https://github.com/ai4bharat/IndicF5.git"
     # shellcheck disable=SC2086
-    "$CLONE_ENV/bin/python" -m pip install -q $pkgs
+    # (pip's "X requires numpy>=2" warnings are about system packages this env never imports.)
+    "$CLONE_ENV/bin/python" -m pip install -q $pkgs > "$CLONE_ENV/pip.log" 2>&1 || {
+      tail -30 "$CLONE_ENV/pip.log" >&2; echo "pip install for the clone engines failed" >&2; exit 1; }
     # shellcheck disable=SC2086
     COQUI_TOS_AGREED="${ACCEPT_XTTS_NONCOMMERCIAL:-0}" "$CLONE_ENV/bin/python" scripts/make_clone_spoof.py \
       --engines $engines --per-language "$CLONES_PER_LANG"

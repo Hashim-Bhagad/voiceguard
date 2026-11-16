@@ -110,7 +110,9 @@ def indic_references(candidates: pd.DataFrame, language: str, revision: str | No
         speaker = f"indicvoices:{safe_name(record.get('speaker_id') or f'unknown_{index}')}"
         text = clean_text(record.get("text") or record.get("normalized") or "")
         words = len(text.split())
-        if 4 <= words <= 30:
+        # Texts to synthesise come only from speakers we do NOT clone, so a clone never
+        # says something its own speaker said in the data.
+        if 4 <= words <= 30 and speaker not in ours:
             texts.append((speaker, text))
         duration = float(record.get("duration") or 0.0)
         if (speaker in ours and len(refs[speaker]) < refs_per_speaker and 3.0 <= duration <= 12.0
