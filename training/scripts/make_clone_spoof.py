@@ -289,7 +289,17 @@ def _stub_datasets_if_broken() -> None:
 
     stub = types.ModuleType("datasets")
     stub.__spec__ = importlib.machinery.ModuleSpec("datasets", None)  # find_spec() needs one
-    stub.__getattr__ = lambda name: _Unavailable  # any `from datasets import X` resolves
+    # Real strings for the module metadata other libraries inspect (torch.compile walks
+    # module __file__s), placeholders for everything `from datasets import X` asks for.
+    stub.__file__ = "<datasets inference stub>"
+    stub.__version__ = "0.0.0"
+
+    def _getattr(name: str):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _Unavailable
+
+    stub.__getattr__ = _getattr
     sys.modules["datasets"] = stub
     print("  (datasets unavailable in the clone env; using an inference-only stand-in)")
 
