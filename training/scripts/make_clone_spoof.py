@@ -50,9 +50,9 @@ import tempfile
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 import soundfile as sf
 
 TRAINING_ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +60,9 @@ if str(TRAINING_ROOT) not in sys.path:
     sys.path.insert(0, str(TRAINING_ROOT))
 
 from src.ingest import ClipWriter, load_local_env, safe_name  # noqa: E402
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 INDIC = {"hindi": "hi", "bengali": "bn", "tamil": "ta", "marathi": "mr"}
 ENGINES_FOR = {"hi": ("xtts", "indicf5"), "bn": ("indicf5",), "ta": ("indicf5",),
@@ -107,7 +110,7 @@ def decode(value) -> tuple[np.ndarray, int]:
 
 # --- reference and text collection -------------------------------------------
 
-def indic_references(candidates: pd.DataFrame, language: str, revision: str | None, token: str,
+def indic_references(candidates: "pd.DataFrame", language: str, revision: str | None, token: str,
                      speakers_needed: int, texts_needed: int, refs_per_speaker: int, seed: int):
     """Stream IndicVoices once: reference clips (+ transcripts) of our bona-fide speakers,
     and a pool of other speakers' transcripts to synthesise."""
@@ -137,8 +140,11 @@ def indic_references(candidates: pd.DataFrame, language: str, revision: str | No
                 refs[speaker].append((to_16k(wav, rate), REF_RATE, text))
             except Exception as exc:  # noqa: BLE001
                 print(f"    ! unreadable reference: {exc}")
-        full = sum(1 for v in refs.values() if len(v) >= refs_per_speaker)
-        if (full >= speakers_needed and len(texts) >= texts_needed) or index > 200_000:
+        # Stop once every needed speaker has at least one reference and there are enough
+        # texts. A second reference per speaker is opportunistic: waiting for it could mean
+        # streaming the whole language for a speaker who has only one usable clip.
+        have = sum(1 for v in refs.values() if v)
+        if (have >= speakers_needed and len(texts) >= texts_needed) or index > 100_000:
             break
     random.Random(seed).shuffle(texts)
     return dict(refs), texts
@@ -146,12 +152,15 @@ def indic_references(candidates: pd.DataFrame, language: str, revision: str | No
 
 def english_references(candidates_dir: Path, data_root: Path, speakers_needed: int,
                        refs_per_speaker: int, seed: int):
+    import pandas as pd
+
     frames = [pd.read_csv(p) for p in sorted(candidates_dir.glob("*.csv"))
               if p.stem in {"in_the_wild", "garystafford"}]
     if not frames:
         return {}
     df = pd.concat(frames)
     df = df[(df.label == "bonafide") & (df.language == "en") & (df.duration_s >= 4.0)]
+    df = df[df.clip_path.map(lambda p: (data_root / p).exists())]
     speakers = sorted(df.speaker_id.unique())
     random.Random(seed).shuffle(speakers)
     refs = {}
@@ -185,8 +194,8 @@ def english_texts(n: int, seed: int) -> list[tuple[str, str]]:
 class XTTS:
     def __init__(self):
         if os.environ.get("COQUI_TOS_AGREED") != "1":
-            raise SystemExit("XTTS-v2 is under the Coqui Public Model License (non-commercial). "
-                             "Set COQUI_TOS_AGREED=1 to accept it, or drop xtts from --engines.")
+            raise RuntimeError("XTTS-v2 is under the Coqui Public Model License (non-commercial). "
+                               "Set COQUI_TOS_AGREED=1 to accept it, or drop xtts from --engines.")
         from TTS.api import TTS
 
         import torch
@@ -299,11 +308,34 @@ def main() -> None:
     parser.add_argument("--data-root", default=str(TRAINING_ROOT / "data"))
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--name", default="clones")
+    parser.add_argument("--stage", choices=["all", "plan", "synth"], default="all",
+                        help="plan: pick references + texts (needs `datasets`); synth: run the TTS "
+                             "engines on a saved plan (runs in the clone env, which has NumPy 1.x "
+                             "and so cannot import pyarrow/datasets); all: both in one process")
+    parser.add_argument("--plan-dir", default=str(TRAINING_ROOT / "data" / "clone_plan"))
     args = parser.parse_args()
 
     load_local_env()
     token = os.environ.get("HF_TOKEN")
     data_root = Path(args.data_root).resolve()
+    plan_dir = Path(args.plan_dir).resolve()
+    if args.stage == "synth":
+        work, meta = load_plan(plan_dir)
+    else:
+        work, meta = make_plan(args, token, data_root)
+        if args.stage == "plan":
+            save_plan(work, meta, plan_dir)
+            # Streaming `datasets` iterators leave non-daemon threads behind, so a normal exit
+            # can hang forever and stall prepare_data.sh. The plan is on disk; leave now.
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
+    synthesise(work, meta, args, token, data_root)
+
+
+def make_plan(args, token: str | None, data_root: Path):
+    import pandas as pd
+
     cand_dir = data_root / "candidates"
     iv_csv = cand_dir / "indicvoices.csv"
     iv = pd.read_csv(iv_csv) if iv_csv.exists() else pd.DataFrame(columns=["speaker_id", "language"])
@@ -358,6 +390,48 @@ def main() -> None:
                 work.append((lang, engine, speaker, ref, text))
                 made += 1
         print(f"  planned {made} clones: {dict(Counter(e for l, e, *_ in work if l == lang))}")
+    meta = {"engines": args.engines, "languages": list(plan), "per_language": args.per_language,
+            "max_per_speaker": args.max_per_speaker, "indicvoices_revision": revision}
+    return work, meta
+
+
+def save_plan(work, meta: dict, plan_dir: Path) -> None:
+    """Write references as WAVs plus plan.json, for the synth stage in the clone env."""
+    import shutil
+
+    if plan_dir.exists():
+        shutil.rmtree(plan_dir)
+    (plan_dir / "refs").mkdir(parents=True)
+    ref_ids: dict[int, str] = {}
+    items = []
+    for lang, engine, speaker, ref, text in work:
+        key = id(ref)
+        if key not in ref_ids:
+            ref_ids[key] = f"refs/{len(ref_ids):05d}.wav"
+            sf.write(plan_dir / ref_ids[key], ref[0], ref[1])
+        items.append({"lang": lang, "engine": engine, "speaker": speaker, "ref": ref_ids[key],
+                      "ref_text": ref[2], "text": text})
+    (plan_dir / "plan.json").write_text(json.dumps({"meta": meta, "items": items}, ensure_ascii=False, indent=1),
+                                        encoding="utf-8")
+    print(f"\nwrote plan: {len(items)} clones, {len(ref_ids)} reference clips -> {plan_dir}")
+
+
+def load_plan(plan_dir: Path):
+    blob = json.loads((plan_dir / "plan.json").read_text(encoding="utf-8"))
+    cache: dict[str, tuple] = {}
+    work = []
+    for item in blob["items"]:
+        if item["ref"] not in cache:
+            wav, rate = sf.read(str(plan_dir / item["ref"]), dtype="float32", always_2d=False)
+            cache[item["ref"]] = (wav, int(rate), item["ref_text"])
+        work.append((item["lang"], item["engine"], item["speaker"], cache[item["ref"]], item["text"]))
+    print(f"loaded plan: {len(work)} clones from {plan_dir}")
+    return work, blob["meta"]
+
+
+def synthesise(work, meta: dict, args, token: str | None, data_root: Path) -> None:
+
+
 
     writer = ClipWriter(
         source_dataset=args.name,
@@ -414,9 +488,7 @@ def main() -> None:
         raise SystemExit("no clones were produced; see the messages above.")
     print("\n" + writer.summary())
     writer.write_candidate({
-        "engines": args.engines, "languages": list(plan), "per_language": args.per_language,
-        "max_per_speaker": args.max_per_speaker, "indicvoices_revision": revision,
-        "stats": dict(stats), "failed_engines": failed,
+        **meta, "stats": dict(stats), "failed_engines": failed,
         "note": "Zero-shot clones of bona-fide speakers in the manifest. speaker_id equals the "
                 "cloned speaker's bona-fide id, so build_manifest.py keeps both in one split.",
     }, name=args.name)

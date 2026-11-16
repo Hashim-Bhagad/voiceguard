@@ -135,11 +135,15 @@ else
     # clones.csv (or it never appears) and the next run tries again.
     # (pip's "X requires numpy>=2" warnings are about system packages this env never imports.)
     # shellcheck disable=SC2086
-    if ! "$CLONE_ENV/bin/python" -m pip install -q $pkgs > "$CLONE_ENV/pip.log" 2>&1; then
+    # Two stages: the plan (pick reference clips + texts, needs `datasets`/pyarrow, which
+    # need NumPy 2) runs here; synthesis runs in the clone env (NumPy 1.x for IndicF5).
+    if ! "$PY" scripts/make_clone_spoof.py --stage plan --engines $engines --per-language "$CLONES_PER_LANG"; then
+      echo "WARNING: planning the voice clones failed; continuing WITHOUT voice clones." >&2
+    elif ! "$CLONE_ENV/bin/python" -m pip install -q $pkgs > "$CLONE_ENV/pip.log" 2>&1; then
       tail -30 "$CLONE_ENV/pip.log" >&2
       echo "WARNING: installing the clone engines failed; continuing WITHOUT voice clones." >&2
     elif ! COQUI_TOS_AGREED="${ACCEPT_XTTS_NONCOMMERCIAL:-0}" "$CLONE_ENV/bin/python" \
-        scripts/make_clone_spoof.py --engines $engines --per-language "$CLONES_PER_LANG"; then
+        scripts/make_clone_spoof.py --stage synth --engines $engines; then
       echo "WARNING: voice-clone generation failed; continuing WITHOUT voice clones." >&2
     fi
   fi
