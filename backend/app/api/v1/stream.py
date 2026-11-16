@@ -1,7 +1,6 @@
 """WebSocket streaming: init JSON -> binary PCM16 frames -> telemetry JSON @2-4Hz."""
 import json
 import time
-import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.schemas.contracts import InitMessage
 from app.services import ring_buffer, vad, preprocess, model_registry, prosody, linguistic, speaker, fusion, alerts, explainability

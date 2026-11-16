@@ -1,5 +1,10 @@
 # Training — AASIST-L, multilingual, local
 
+> **Training on a GPU (Colab or SageMaker)?** Start with [`cloud/README.md`](cloud/README.md).
+> It covers both models, including the accuracy-first **XLS-R + AASIST** model
+> (`configs/xlsr_aasist_gpu.yaml`, `src/ssl_model.py`), and needs no manual copying of
+> data or code. This page documents the original CPU-laptop workflow.
+
 VoiceGuard uses one acoustic model everywhere: the official
 [ClovaAI AASIST-L](https://github.com/clovaai/aasist) raw-waveform anti-spoofing
 model (85,306 parameters). This directory fine-tunes it **on your own machine**,
@@ -9,7 +14,8 @@ server, a CPU laptop, and a phone.
 There is no Colab step. `runtime.device: auto` uses CUDA when it is present and
 CPU otherwise.
 
-XLS-R, RawNet, WavLM and ensembles are not part of this pipeline.
+XLS-R is available as a second, accuracy-first model for GPU training (see
+`cloud/README.md`); RawNet, WavLM and ensembles are not part of this pipeline.
 
 ---
 
@@ -278,6 +284,11 @@ the backend.
 | `train_aasist_l.py` | Device-agnostic fine-tuning with resume and time budget |
 | `eval.py` | Dev-thresholded test EER plus group breakdowns |
 | `export_onnx.py` | Verified ONNX export |
+| `src/ssl_model.py` | XLS-R 300M + AASIST graph back-end, partial fine-tuning |
+| `scripts/prepare_data.sh` | One command: every source + manifest + validation |
+| `scripts/inspect_finetune.py` | Per-block report: trainable, gradient reach, weight drift |
+| `scripts/plot_results.py` | Training curve, ROC and score-distribution figures |
+| `cloud/` | Colab notebook, SageMaker launcher + entry point, guide |
 | `tests/` | Runnable checks for the above (plain python, no pytest) |
 
 Downloads are verified for completeness, not just for a zero exit code.

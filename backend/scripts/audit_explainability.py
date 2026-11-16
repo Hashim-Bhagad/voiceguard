@@ -109,27 +109,27 @@ def main() -> None:
                 key = reason.split("(")[0].split(":")[0].strip()[:64]
                 reason_counts.setdefault(key, {"bonafide": 0, "spoof": 0})[label] += 1
 
-    print(f"\n=== marker separation (AUC 0.5 = useless, 1.0 = perfect) ===")
+    print("\n=== marker separation (AUC 0.5 = useless, 1.0 = perfect) ===")
     describe("spoof_score (ONNX model)", stats["spoof_score"]["bonafide"],
              stats["spoof_score"]["spoof"])
     describe("jitter_pct", stats["jitter_pct"]["bonafide"], stats["jitter_pct"]["spoof"])
     describe("spectral_discontinuity", stats["spectral_discontinuity"]["bonafide"],
              stats["spectral_discontinuity"]["spoof"])
 
-    print(f"\n=== jitter saturation (estimator clips at 4.0) ===")
+    print("\n=== jitter saturation (estimator clips at 4.0) ===")
     for label in ("bonafide", "spoof"):
         n = totals[label] or 1
         pct = 100.0 * jitter_at_ceiling[label] / n
         print(f"  {label:9s} {jitter_at_ceiling[label]:3d}/{totals[label]:3d} clips pinned at "
               f"the 4.0 ceiling ({pct:.0f}%)")
 
-    print(f"\n=== prosody 'flat' rate ===")
+    print("\n=== prosody 'flat' rate ===")
     for label in ("bonafide", "spoof"):
         n = totals[label] or 1
         print(f"  {label:9s} {prosody_flat[label]:3d}/{totals[label]:3d} "
               f"({100.0 * prosody_flat[label] / n:.0f}%)")
 
-    print(f"\n=== how often each diagnostic sentence fires ===")
+    print("\n=== how often each diagnostic sentence fires ===")
     print(f"  {'reason':64s} {'bonafide':>9s} {'spoof':>7s}  assessment")
     for key, counts in sorted(reason_counts.items(), key=lambda kv: -kv[1]["spoof"]):
         b_rate = 100.0 * counts["bonafide"] / max(1, totals["bonafide"])

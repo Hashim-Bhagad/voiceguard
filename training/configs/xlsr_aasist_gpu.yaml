@@ -1,0 +1,75 @@
+# XLS-R 300M + AASIST graph back-end, partially fine-tuned on one cloud GPU.
+#
+# Accuracy-first alternative to AASIST-L (see src/ssl_model.py for the why).
+# Same data, splits, augmentation and ONNX contract, so results are directly
+# comparable with configs/aasist_l_gpu.yaml.
+#
+#   python train_aasist_l.py --config configs/xlsr_aasist_gpu.yaml
+#   (no --pretrained: the encoder initialises from model.ssl.pretrained)
+seed: 42
+sample_rate: 16000
+
+model:
+  type: xlsr_aasist
+  upstream_dir: third_party/aasist   # graph-attention layers come from official AASIST
+  window_samples: 64600              # same 4.04 s window as AASIST-L and the backend
+  ssl:
+    pretrained: facebook/wav2vec2-xls-r-300m
+    # XLS-R has 24 transformer layers. Training the top 8 (layers 16-23) plus the
+    # back-end adapts the most task-specific representations while the frozen
+    # lower 16 cost only a forward pass. 0 = frozen encoder (fastest, weakest);
+    # 24 = full fine-tune (slowest, needs a much smaller ssl_lr).
+    finetune_top_layers: 8
+    # Learn a softmax-weighted mix of all 25 hidden states. Spoofing artefacts
+    # tend to live in the lower/middle layers, which a last-layer-only head misses.
+    layer_weighting: true
+  backend:
+    proj_dim: 128
+    channels: [32, 32, 64, 64]
+    time_pool: [2, 2, 1, 1]
+    gat_dims: [64, 32]
+    pool_ratios: [0.5, 0.5, 0.5]
+    temperatures: [2.0, 2.0, 100.0]
+
+runtime:
+  device: auto
+  num_threads: 0
+  cache_dir: data/cache/waveforms
+
+data:
+  metadata_csv: data/metadata.csv
+  train_split: train
+  dev_split: dev
+  test_split: test
+  batch_size: 16
+  num_workers: 4
+  balanced_sampler: true
+  balance_by: [label, language]
+
+augmentation:
+  narrowband_prob: 0.40
+  noise_prob: 0.40
+  rir_prob: 0.20
+  gain_db: 3.0
+  snr_db_range: [5.0, 20.0]
+  frequency_mask: false
+  noise_dir: data/augmentation/musan
+  rir_dir: data/augmentation/rirs
+
+train:
+  epochs: 12              # SSL models converge in far fewer epochs than AASIST-L
+  patience: 4
+  lr: 0.0001              # new back-end
+  ssl_lr: 0.00001         # pre-trained XLS-R layers: 10x smaller
+  min_lr: 0.000001
+  betas: [0.9, 0.999]
+  amsgrad: false
+  weight_decay: 0.0001
+  class_weights: [1.0, 1.0]
+  grad_clip_norm: 5.0
+  grad_accum_steps: 2     # effective batch 32
+  mixed_precision: true
+  amp_dtype: auto
+  out_dir: outputs/xlsr_aasist
+  max_hours: 0
+  log_every: 25

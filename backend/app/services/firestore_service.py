@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from app.core.config import get_settings
 

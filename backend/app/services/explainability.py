@@ -5,7 +5,7 @@ and categorizes linguistic social-engineering triggers into actionable, explaina
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 import numpy as np
 
 log = logging.getLogger("voiceguard.explainability")

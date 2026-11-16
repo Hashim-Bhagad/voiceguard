@@ -29,7 +29,7 @@ from tqdm import tqdm
 from src.dataset import (
     SpoofDataset, assert_no_leakage, balanced_sample_weights, load_metadata, seed_worker,
 )
-from src.model import build_model
+from src.model import build_model, model_type
 
 
 def set_seed(seed: int) -> None:
@@ -54,6 +54,20 @@ def resolve_device(requested: str) -> torch.device:
     if requested != "auto":
         raise SystemExit(f"runtime.device must be auto, cpu or cuda; got {requested!r}")
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def resolve_amp_dtype(requested: str, enabled: bool) -> torch.dtype:
+    """bf16 on GPUs that support it (A100, L4, H100), fp16 otherwise (T4, V100)."""
+    requested = str(requested or "auto").lower()
+    if not enabled:
+        return torch.float32
+    if requested == "auto":
+        return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    if requested in ("bf16", "bfloat16"):
+        return torch.bfloat16
+    if requested in ("fp16", "float16"):
+        return torch.float16
+    raise SystemExit(f"train.amp_dtype must be auto, bf16 or fp16; got {requested!r}")
 
 
 def eer(y_true: np.ndarray, scores: np.ndarray) -> float:
@@ -166,7 +180,11 @@ def main() -> None:
     print("split/label counts:", df.groupby(["split", "label"]).size().to_dict())
 
     model = build_model(cfg).to(device)
-    print(f"AASIST-L parameters: {model.num_parameters():,}")
+    kind = model_type(cfg)
+    if hasattr(model, "describe"):
+        print(model.describe())
+    else:
+        print(f"AASIST-L parameters: {model.num_parameters():,} (all trainable)")
 
     output_dir = Path(cfg["train"]["out_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -174,6 +192,11 @@ def main() -> None:
     best_path = output_dir / "best.pt"
     history_path = output_dir / "history.csv"
 
+    if args.pretrained and kind != "aasist_l":
+        raise SystemExit(
+            f"--pretrained loads an AASIST-L checkpoint; model.type={kind} initialises "
+            "its encoder from model.ssl.pretrained instead. Drop --pretrained."
+        )
     if args.pretrained and not args.resume:
         missing, unexpected = model.load_pretrained(args.pretrained)
         print(f"loaded {args.pretrained}: missing={len(missing)} unexpected={len(unexpected)}")
@@ -186,8 +209,15 @@ def main() -> None:
     criterion = torch.nn.CrossEntropyLoss(
         weight=torch.tensor(cfg["train"]["class_weights"], dtype=torch.float32, device=device)
     )
+    # Frozen parameters are left out of the optimiser entirely: Adam's weight
+    # decay would otherwise still nudge them, and their state would waste memory.
+    param_groups = (
+        model.optimizer_groups(cfg["train"]) if hasattr(model, "optimizer_groups")
+        else [p for p in model.parameters() if p.requires_grad]
+    )
+    trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.Adam(
-        model.parameters(),
+        param_groups,
         lr=float(cfg["train"]["lr"]),
         betas=tuple(cfg["train"]["betas"]),
         weight_decay=float(cfg["train"]["weight_decay"]),
@@ -198,7 +228,11 @@ def main() -> None:
         optimizer, T_max=total_epochs, eta_min=float(cfg["train"]["min_lr"])
     )
     amp_enabled = device.type == "cuda" and bool(cfg["train"]["mixed_precision"])
-    scaler = torch.amp.GradScaler(device.type, enabled=amp_enabled)
+    amp_dtype = resolve_amp_dtype(cfg["train"].get("amp_dtype", "auto"), amp_enabled)
+    # bf16 has fp32's exponent range, so it needs no loss scaling; fp16 does.
+    scaler = torch.amp.GradScaler(device.type, enabled=amp_enabled and amp_dtype == torch.float16)
+    if amp_enabled:
+        print(f"mixed precision: {str(amp_dtype).removeprefix('torch.')}")
     if device.type == "cpu" and bool(cfg["train"]["mixed_precision"]):
         print("note: mixed_precision ignored on CPU (fp32 is faster without AVX512-BF16)")
 
@@ -212,7 +246,7 @@ def main() -> None:
         model.load_state_dict(blob["model"])
         optimizer.load_state_dict(blob["optimizer"])
         scheduler.load_state_dict(blob["scheduler"])
-        if blob.get("scaler") and amp_enabled:
+        if blob.get("scaler") and scaler.is_enabled():
             scaler.load_state_dict(blob["scaler"])
         start_epoch = int(blob["epoch"]) + 1
         best_eer = float(blob.get("best_eer", float("inf")))
@@ -241,6 +275,13 @@ def main() -> None:
         f"(accum {accum}) for epochs {start_epoch}..{total_epochs}"
     )
     stop_reason = "completed all epochs"
+    epoch = start_epoch - 1  # defined even when a finished run is resumed and the loop is empty
+    patience = int(cfg["train"]["patience"])
+    if start_epoch > total_epochs or stagnant >= patience:
+        # Resuming a run that finished or early-stopped must not train further.
+        stop_reason = "already complete; nothing to resume"
+        print(f"{last_path} is from epoch {start_epoch - 1} of {total_epochs}: {stop_reason}")
+        total_epochs = start_epoch - 1
     for epoch in range(start_epoch, total_epochs + 1):
         model.train()
         epoch_start = time.time()
@@ -252,7 +293,7 @@ def main() -> None:
         for step, (waveform, label) in enumerate(progress, start=1):
             waveform = waveform.to(device, non_blocking=True)
             label = label.to(device, non_blocking=True)
-            with torch.autocast(device_type=device.type, enabled=amp_enabled):
+            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
                 logits = model(waveform, freq_aug=freq_aug)
                 loss = criterion(logits, label)
             scaler.scale(loss / accum).backward()
@@ -260,7 +301,7 @@ def main() -> None:
             if step % accum == 0:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), float(cfg["train"]["grad_clip_norm"])
+                    trainable, float(cfg["train"]["grad_clip_norm"])
                 )
                 scaler.step(optimizer)
                 scaler.update()
@@ -302,7 +343,7 @@ def main() -> None:
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
-            "scaler": scaler.state_dict() if amp_enabled else None,
+            "scaler": scaler.state_dict() if scaler.is_enabled() else None,
             "config": cfg,
             "epoch": epoch,
             "dev_eer": dev_eer,

@@ -1,0 +1,28 @@
+# Cloud GPU training stack (Colab, SageMaker, any CUDA box).
+#
+# torch is deliberately NOT listed: Colab and the SageMaker PyTorch containers
+# ship a CUDA build of torch, and reinstalling it from PyPI is the most common
+# way to end up with a CPU-only or mismatched-CUDA torch. Lower bounds only, so
+# pip keeps whatever the image already has when it is new enough.
+#
+#   pip install -r requirements-gpu.txt
+
+numpy>=1.26
+scipy>=1.11
+pandas>=2.1
+scikit-learn>=1.4
+
+soundfile>=0.12
+soxr>=0.3
+librosa>=0.10
+
+pyyaml>=6.0
+tqdm>=4.66
+matplotlib>=3.8
+
+onnx>=1.16
+onnxruntime>=1.18
+
+huggingface-hub>=0.24
+transformers>=4.44,<5      # XLS-R encoder (configs/xlsr_aasist_gpu.yaml)
+datasets>=2.20

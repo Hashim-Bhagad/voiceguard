@@ -1,0 +1,70 @@
+# AASIST-L fine-tuning profile for a single cloud GPU (Colab T4/L4/A100,
+# SageMaker ml.g4dn / ml.g5 / ml.g6). Same model, data contract and augmentation
+# as configs/aasist_l.yaml; only the throughput settings differ.
+#
+#   python train_aasist_l.py --config configs/aasist_l_gpu.yaml --pretrained weights/AASIST-L.pth
+seed: 42
+sample_rate: 16000
+
+model:
+  upstream_dir: third_party/aasist
+  window_samples: 64600
+  # Verbatim copy of model_config from upstream config/AASIST-L.conf.
+  architecture:
+    architecture: AASIST
+    nb_samp: 64600
+    first_conv: 128
+    filts: [70, [1, 32], [32, 32], [32, 24], [24, 24]]
+    gat_dims: [24, 32]
+    pool_ratios: [0.4, 0.5, 0.7, 0.5]
+    temperatures: [2.0, 2.0, 100.0, 100.0]
+
+runtime:
+  device: auto
+  num_threads: 0          # let torch decide; the GPU does the work
+  # Keep this on the instance's local disk, never on a network mount (Drive/S3).
+  cache_dir: data/cache/waveforms
+
+data:
+  metadata_csv: data/metadata.csv
+  train_split: train
+  dev_split: dev
+  test_split: test
+  # Upstream AASIST-L was trained at batch 24. At ~0.19 GiB of activations per
+  # clip that is ~5 GiB in fp32 and well under half that in mixed precision, so it
+  # fits a 16 GB T4 with room to spare.
+  batch_size: 24
+  # Colab free/Pro gives 2-8 vCPUs; ml.g4dn.xlarge has 4, ml.g5.2xlarge has 8.
+  # Decoding + augmentation is CPU-bound, so this is usually the bottleneck.
+  num_workers: 4
+  balanced_sampler: true
+  balance_by: [label, language]
+
+augmentation:
+  narrowband_prob: 0.40
+  noise_prob: 0.40
+  rir_prob: 0.20
+  gain_db: 3.0
+  snr_db_range: [5.0, 20.0]
+  frequency_mask: false
+  noise_dir: data/augmentation/musan
+  rir_dir: data/augmentation/rirs
+
+train:
+  epochs: 30
+  patience: 6
+  lr: 0.0001
+  min_lr: 0.000005
+  betas: [0.9, 0.999]
+  amsgrad: false
+  weight_decay: 0.0001
+  class_weights: [1.0, 1.0]
+  grad_clip_norm: 5.0
+  grad_accum_steps: 1     # batch 24 is already the upstream batch size
+  mixed_precision: true
+  amp_dtype: auto         # bf16 on A100/L4/H100, fp16 + loss scaling on T4/V100
+  out_dir: outputs/aasist_l_indic
+  # Colab sessions can be cut off; checkpoints land every epoch and --resume
+  # continues. Set a budget slightly under your session limit.
+  max_hours: 0
+  log_every: 25

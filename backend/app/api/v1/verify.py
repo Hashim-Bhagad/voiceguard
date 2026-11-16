@@ -1,6 +1,5 @@
 import time
 import uuid
-import numpy as np
 from fastapi import APIRouter, UploadFile, File, Form
 from app.schemas.contracts import VerifyResponse
 from app.services import model_registry, prosody, linguistic, fusion, stt, audio_utils, firestore_service, explainability

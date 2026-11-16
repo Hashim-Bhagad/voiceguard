@@ -128,7 +128,23 @@ class SpoofLogitExport(nn.Module):
         return logits[:, 1] - logits[:, 0]
 
 
-def build_model(cfg: dict[str, Any]) -> AASISTL:
+MODEL_TYPES = ("aasist_l", "xlsr_aasist")
+
+
+def model_type(cfg: dict[str, Any]) -> str:
+    kind = str(cfg["model"].get("type", "aasist_l")).lower()
+    if kind not in MODEL_TYPES:
+        raise ValueError(f"model.type must be one of {MODEL_TYPES}, got {kind!r}")
+    return kind
+
+
+def build_model(cfg: dict[str, Any]) -> nn.Module:
+    """Build the configured model. ``model.type`` defaults to ``aasist_l``."""
+    if model_type(cfg) == "xlsr_aasist":
+        from src.ssl_model import build_xlsr_model  # lazy: needs transformers
+
+        return build_xlsr_model(cfg)
+
     model_cfg = cfg["model"]
     model = AASISTL(
         upstream_dir=model_cfg["upstream_dir"],

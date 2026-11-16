@@ -191,5 +191,38 @@ try:
 except ValueError as exc:
     check("rejects non-AASIST-L architecture", "does not match the official AASIST-L" in str(exc))
 
+print("== xlsr_aasist (tiny random encoder, no download) ==")
+try:
+    from transformers import Wav2Vec2Config, Wav2Vec2Model
+except ImportError:
+    print("  SKIP  transformers not installed (pip install -r requirements-gpu.txt)")
+else:
+    from src.ssl_model import build_xlsr_model
+
+    xcfg = yaml.safe_load((TRAINING_ROOT / "configs" / "xlsr_aasist_gpu.yaml").read_text(encoding="utf-8"))
+    xcfg["model"]["ssl"]["finetune_top_layers"] = 2
+    tiny = Wav2Vec2Config(
+        hidden_size=32, num_hidden_layers=4, num_attention_heads=2, intermediate_size=64,
+        do_stable_layer_norm=True, feat_extract_norm="layer", conv_bias=True,
+        num_conv_pos_embeddings=16, num_conv_pos_embedding_groups=2,
+    )
+    xmodel = build_xlsr_model(xcfg, ssl_model=Wav2Vec2Model(tiny))
+    check("only the top 2 encoder layers are trainable", xmodel.trainable_ssl_layers == [2, 3],
+          xmodel.trainable_ssl_layers)
+    check("CNN feature encoder is frozen",
+          not any(p.requires_grad for p in xmodel.ssl.feature_extractor.parameters()))
+    xmodel.train()
+    check("frozen layers stay in eval mode", not xmodel.ssl.encoder.layers[0].training)
+    check("trainable layers follow train()", xmodel.ssl.encoder.layers[3].training)
+    logits = xmodel(torch.randn(2, 64600) * 0.1)
+    check("xlsr returns [batch, 2] logits", tuple(logits.shape) == (2, 2), tuple(logits.shape))
+    torch.nn.functional.cross_entropy(logits, torch.tensor([0, 1])).backward()
+    check("frozen parameters get no gradient",
+          all(p.grad is None for p in xmodel.parameters() if not p.requires_grad))
+    check("every trainable parameter gets a gradient",
+          all(p.grad is not None for p in xmodel.parameters() if p.requires_grad))
+    lrs = sorted(g["lr"] for g in xmodel.optimizer_groups({"lr": 1e-4, "ssl_lr": 1e-5}))
+    check("encoder gets the smaller learning rate", lrs == [1e-5, 1e-4], lrs)
+
 print(f"\n{ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

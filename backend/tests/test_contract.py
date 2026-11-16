@@ -44,7 +44,7 @@ def test_linguistic_multilingual():
 
 def test_explainability_forensics():
     import numpy as np
-    from app.services.explainability import generate_forensic_report, extract_pitch_jitter, extract_spectral_discontinuity
+    from app.services.explainability import generate_forensic_report
     
     # Generate 1 second synthetic tone vs pseudo-random
     t = np.linspace(0, 1.0, 16000, endpoint=False)
@@ -60,7 +60,8 @@ def test_explainability_forensics():
 def test_challenge_workflow():
     from app.services.challenge import create_challenge, verify_challenge_audio
     import numpy as np
-    import io, wave
+    import io
+    import wave
 
     ch = create_challenge("session_test_123")
     assert "display_code" in ch
@@ -83,7 +84,8 @@ def test_challenge_workflow():
 
 def test_verify_file_endpoint():
     import numpy as np
-    import io, wave
+    import io
+    import wave
 
     wav_io = io.BytesIO()
     with wave.open(wav_io, 'wb') as wf:

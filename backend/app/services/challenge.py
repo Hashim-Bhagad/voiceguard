@@ -5,12 +5,11 @@ evaluates response latency (deepfake pipelines lag >2.5s), and verifies spoken t
 from __future__ import annotations
 
 import logging
-import random
+import secrets
 import re
 import time
-from typing import Any, Dict
 
-from app.services import audio_utils, model_registry, stt, firestore_service, explainability
+from app.services import audio_utils, model_registry, stt, explainability
 
 log = logging.getLogger("voiceguard.challenge")
 
@@ -36,7 +35,9 @@ EXPIRY_SECONDS = 30
 
 def create_challenge(session_id: str) -> dict:
     """Generate a dynamic 4-digit challenge bound to session_id."""
-    tokens = [random.choice(_DIGITS) for _ in range(4)]
+    # secrets, not random: a liveness challenge must not be predictable from
+    # earlier ones, and the random module is a seedable Mersenne Twister.
+    tokens = [secrets.choice(_DIGITS) for _ in range(4)]
     display_code = " ".join(tokens)
     phrase = "-".join(tokens)
     prompt = f"Please repeat the numbers: {', '.join(tokens)}"

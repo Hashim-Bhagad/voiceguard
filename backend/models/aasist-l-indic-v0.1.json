@@ -1,0 +1,17 @@
+{
+  "source_checkpoint": "best.pt",
+  "architecture": "AASIST-L (ClovaAI, official config)",
+  "parameters": 85306,
+  "opset": 17,
+  "sample_rate": 16000,
+  "window_samples": 64600,
+  "input": "waveform float32[batch, 64600]",
+  "output": "spoof_logit float32[batch]; positive = more spoof-like",
+  "verified_max_abs_error": {
+    "1": 2.384185791015625e-07,
+    "3": 4.291534423828125e-06
+  },
+  "size_mb": 0.773,
+  "source_epoch": 1,
+  "source_dev_eer": 0.1352
+}

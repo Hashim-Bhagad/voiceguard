@@ -20,7 +20,7 @@ import onnxruntime as ort
 import torch
 import yaml
 
-from src.model import SpoofLogitExport, build_model
+from src.model import SpoofLogitExport, build_model, model_type
 
 TRAINING_ROOT = Path(__file__).resolve().parent
 
@@ -110,8 +110,15 @@ def main() -> None:
     sidecar.write_text(
         json.dumps(
             {
-                "source_checkpoint": str(Path(args.ckpt).resolve()),
-                "architecture": "AASIST-L (ClovaAI, official config)",
+                # Name, epoch and dev EER only: an absolute path leaks the
+                # trainer's home directory into a file that ships with the backend.
+                "source_checkpoint": Path(args.ckpt).name,
+                "source_epoch": blob.get("epoch") if isinstance(blob, dict) else None,
+                "source_dev_eer": blob.get("dev_eer") if isinstance(blob, dict) else None,
+                "architecture": (
+                    "AASIST-L (ClovaAI, official config)" if model_type(cfg) == "aasist_l"
+                    else f"XLS-R ({cfg['model'].get('ssl', {}).get('pretrained', 'wav2vec2')}) + AASIST graph back-end"
+                ),
                 "parameters": model.num_parameters(),
                 "opset": args.opset,
                 "sample_rate": cfg["sample_rate"],
