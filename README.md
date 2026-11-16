@@ -72,13 +72,13 @@ The acoustic signal comes from a model **fine-tuned in this repo** and served as
 The split logic prevents the usual ways an anti-spoofing EER gets inflated:
 
 * **Speaker-disjoint.** No speaker appears in more than one split, so the model can't recognise voices instead of artefacts.
-* **Generator holdout.** Entire TTS systems are kept out of training. Dev uses ElevenLabs (+ Veena); test uses Speechify, Kokoro, In-the-Wild's unknown generators (+ IndicF5). **The headline number is always on synthesisers the model has never seen.**
+* **Generator holdout.** Entire TTS systems are kept out of training. Dev uses ElevenLabs (+ Veena); test uses Speechify, Kokoro (+ IndicF5). In-the-Wild's spoofs carry no generator labels, so they are split by speaker instead (see the caveat under Results).
 * **Balanced sampling** by (label × language), so "English" and "spoof" never become correlated within a batch.
 * **Label-neutral augmentation.** Telephony narrowband round trip, MUSAN-style noise at 5-20 dB SNR, room impulse responses and gain are applied with equal probability to both classes, so the augmentation itself can't become a feature.
 
 ### Results so far
 
-Held-out **test** split: 3,733 clips (1,810 genuine, 1,923 spoof) in English, Hindi, Bengali, Marathi and Tamil. Every spoof comes from a generator **unseen in training**: Speechify, Kokoro, IndicF5 (Hindi) and In-the-Wild's unknown deepfake tools.
+Held-out **test** split: 3,733 clips (1,810 genuine, 1,923 spoof) in English, Hindi, Bengali, Marathi and Tamil. Every speaker in it is unseen in training. 378 of the spoofs come from TTS systems **never seen in training** (Speechify, Kokoro, IndicF5); the other 1,545 are In-the-Wild deepfakes of unseen speakers.
 
 | Model | Trained on | Test EER ↓ | ROC-AUC ↑ |
 |---|---|---:|---:|
@@ -97,9 +97,10 @@ XLS-R + AASIST on the test split, broken down:
 
 * **Run:** 101M of 316M parameters trainable (XLS-R layers 16-23, the layer-weighting head and the AASIST back-end). fp16 mixed precision, balanced (label × language) sampling. Dev EER was best (9.04%) at epoch 5, and training stopped early after epoch 9.
 * **Thresholds:** the dev threshold is conservative on test. At that threshold it misses 0.2% of clones but flags 13.8% of genuine clips, almost all of them noisy In-the-Wild recordings (18.1% flagged, against 2.4% on clean sources). The dev split is small (1,185 clips), so recalibrating the threshold on a larger dev set is the next step.
+* **In-the-Wild is not a held-out generator.** The manifest builder keeps each speaker in one split. In-the-Wild has real and fake clips of the same celebrities, so when a speaker's real clips landed in train, their fake clips were moved there too. In-the-Wild deepfakes therefore appear in both train and test, with different speakers. The strict generator-holdout result is the unseen-TTS row: 0 of 378 clones missed.
 * **Language coverage:** Bengali, Marathi and Tamil only have genuine clips in test (false-positive rate 0%, 4.3% and 1.2%), so the model's behaviour on clones in those languages is not measured yet.
 
-The full corpus and the larger model took the error on unseen generators from 25.3% to 2.97%. The two numbers come from different test sets, so treat this as a direction rather than an exact ratio.
+The full corpus and the larger model took the test error from 25.3% to 2.97%. The two numbers come from different test sets, so treat this as a direction rather than an exact ratio.
 
 <p align="center"><img src="docs/images/aasist_l_training_curve.png" width="640" alt="AASIST-L fine-tuning curve"></p>
 
