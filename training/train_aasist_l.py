@@ -56,13 +56,22 @@ def resolve_device(requested: str) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def has_native_bf16() -> bool:
+    """True only on Ampere or newer (compute capability >= 8.0).
+
+    torch.cuda.is_bf16_supported() also returns True on a T4 or V100, because
+    recent PyTorch *emulates* bf16 there; emulated bf16 is far slower than fp16.
+    """
+    return torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 0)
+
+
 def resolve_amp_dtype(requested: str, enabled: bool) -> torch.dtype:
     """bf16 on GPUs that support it (A100, L4, H100), fp16 otherwise (T4, V100)."""
     requested = str(requested or "auto").lower()
     if not enabled:
         return torch.float32
     if requested == "auto":
-        return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        return torch.bfloat16 if has_native_bf16() else torch.float16
     if requested in ("bf16", "bfloat16"):
         return torch.bfloat16
     if requested in ("fp16", "float16"):
