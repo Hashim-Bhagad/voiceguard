@@ -37,6 +37,42 @@ SPEAKER_FIELD = "speaker_id"
 DEFAULT_LANGUAGES = ("hindi", "marathi", "tamil", "bengali")
 
 
+def decode_audio(value) -> tuple:
+    """Return (mono float32 array, sample rate) from any shape `datasets` hands back.
+
+    datasets < 4 yields {"array", "sampling_rate"}. datasets >= 4 decodes through
+    torchcodec, which is often missing (Colab), so the column is cast to
+    Audio(decode=False) and the raw {"bytes", "path"} is decoded here instead.
+    A torchcodec AudioDecoder is handled too, in case decoding stayed on.
+    """
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    if hasattr(value, "get_all_samples"):  # torchcodec AudioDecoder
+        samples = value.get_all_samples()
+        return samples.data.mean(dim=0).numpy().astype(np.float32), int(samples.sample_rate)
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{AUDIO_FIELD} has an unexpected type: {type(value)}")
+    if "array" in value:
+        return np.asarray(value["array"], dtype=np.float32), int(value["sampling_rate"])
+    raw = value.get("bytes")
+    if raw is None and value.get("path"):
+        raw = Path(value["path"]).read_bytes()
+    if raw is None:
+        raise RuntimeError(f"{AUDIO_FIELD} has neither audio bytes nor a path: {list(value)}")
+    try:
+        wav, rate = sf.read(io.BytesIO(raw), dtype="float32", always_2d=False)
+    except Exception:  # noqa: BLE001 - fall back to librosa/audioread for odd containers
+        import librosa
+
+        wav, rate = librosa.load(io.BytesIO(raw), sr=None, mono=True)
+    if wav.ndim > 1:
+        wav = wav.mean(axis=1)
+    return wav.astype(np.float32), int(rate)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-id", default=REPO_ID)
@@ -73,7 +109,7 @@ def main() -> None:
             "then add HF_TOKEN=hf_... to training/.env (see .env.example)."
         )
 
-    from datasets import load_dataset
+    from datasets import Audio, load_dataset
     from huggingface_hub import HfApi
 
     revision = HfApi(token=token).dataset_info(args.repo_id).sha
@@ -98,6 +134,9 @@ def main() -> None:
             revision=revision,
             token=token,
         )
+        features = getattr(stream, "features", None)
+        if features and AUDIO_FIELD in features:
+            stream = stream.cast_column(AUDIO_FIELD, Audio(decode=False))  # see decode_audio
         columns = set(getattr(stream, "column_names", None) or [])
         if columns and AUDIO_FIELD not in columns:
             raise RuntimeError(
@@ -110,17 +149,13 @@ def main() -> None:
         for index, record in enumerate(stream):
             if kept >= args.max_per_language:
                 break
-            audio = record.get(AUDIO_FIELD)
-            if not isinstance(audio, dict) or "array" not in audio:
-                raise RuntimeError(
-                    f"{AUDIO_FIELD} is not a decoded datasets Audio value (got {type(audio)})."
-                )
             speaker = str(record.get(SPEAKER_FIELD) or f"unknown_{index}")
             if speaker_counts[speaker] >= args.max_per_speaker:
                 continue
+            wav, rate = decode_audio(record.get(AUDIO_FIELD))
             added = writer.add(
-                audio["array"],
-                int(audio["sampling_rate"]),
+                wav,
+                rate,
                 stem=f"{language}_{kept:05d}",
                 label="bonafide",
                 speaker_id=speaker,

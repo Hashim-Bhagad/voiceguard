@@ -16,7 +16,7 @@ Your laptop's `training/data/`, `training/.env` and `backend/.env` stay on your 
 
 ## 0. One-time setup (both platforms)
 
-1. **Push the code to GitHub.** Colab and SageMaker clone from GitHub, so they only see what has been pushed. If you are on a branch, note its name; you will paste it into the notebook or launcher.
+1. **Push the code to GitHub.** Colab and SageMaker clone from GitHub, so they only see what has been pushed. The notebook defaults to the public repo [`Hashim-Bhagad/voiceguard`](https://github.com/Hashim-Bhagad/voiceguard) on `main`. If you train from a private fork, add a `GITHUB_TOKEN` Colab secret (a token with read access to it) and change `REPO_URL`.
 2. **Accept the IndicVoices terms.** Sign in to Hugging Face, open [ai4bharat/IndicVoices](https://huggingface.co/datasets/ai4bharat/IndicVoices) and accept the gated-access terms.
 3. **Create a read token** at <https://huggingface.co/settings/tokens> (type *Read*). It starts with `hf_`.
 4. **Decide on MLAAD.** MLAAD is the only source here with real Indic-language deepfakes (9 Hindi TTS systems), so it matters for accuracy. It is licensed CC-BY-NC-4.0: fine for coursework and research, not for a commercial product. It is on by default in the notebook; switch it off if that licence doesn't fit you.
@@ -36,13 +36,13 @@ Both use the same data, splits and ONNX contract, so their test numbers are dire
 
 ## Option A: Google Colab (easiest)
 
-1. **Open the notebook in Colab.** Replace `BRANCH` with your branch name (or `main`):
-   `https://colab.research.google.com/github/Hashim-Bhagad/voice-guard/blob/BRANCH/training/cloud/VoiceGuard_GPU_Training.ipynb`
+1. **Open the notebook in Colab**, then *File → Save a copy in Drive* so your settings persist:
+   `https://colab.research.google.com/github/Hashim-Bhagad/voiceguard/blob/main/training/cloud/VoiceGuard_GPU_Training.ipynb`
 2. **Choose a GPU:** `Runtime → Change runtime type → GPU`. A T4 works. An L4 or A100 (Colab Pro) is several times faster and supports bf16.
 3. **Add the token:** click the key icon in the left sidebar, then *Add new secret*, name it `HF_TOKEN`, paste the token, and switch on *Notebook access*.
 4. **Fill in the Settings cell:**
    - `MODEL`: `xlsr_aasist` or `aasist_l`
-   - `BRANCH`: the branch you pushed
+   - `REPO_URL` / `BRANCH`: leave as they are unless you train from your own fork or branch
    - `ACCEPT_MLAAD_NONCOMMERCIAL`: see step 0.4
    - `MAX_HOURS`: stop a little before your session limit (free Colab is capped and can disconnect earlier)
 5. **Run everything:** `Runtime → Run all`. Approve the Google Drive prompt.
@@ -82,8 +82,8 @@ A training job runs to completion with no browser open. Managed spot capacity cu
 Run from your laptop (with AWS credentials configured) or from a SageMaker Studio terminal:
 
 ```bash
-git clone -b BRANCH https://github.com/Hashim-Bhagad/voice-guard
-cd voice-guard/training
+git clone https://github.com/Hashim-Bhagad/voiceguard
+cd voiceguard/training
 pip install "sagemaker>=2.200,<3"
 
 python cloud/launch_sagemaker.py \
@@ -126,7 +126,7 @@ Only the code is uploaded (about 300 KB). The job then:
 If you would rather drive it by hand, open a JupyterLab space on a GPU instance (for example `ml.g5.2xlarge`), open a terminal, and run the same commands the notebook runs:
 
 ```bash
-git clone -b BRANCH https://github.com/Hashim-Bhagad/voice-guard && cd voice-guard/training
+git clone https://github.com/Hashim-Bhagad/voiceguard && cd voiceguard/training
 pip install -r requirements-gpu.txt
 export HF_TOKEN=hf_xxxxxxxx ACCEPT_MLAAD_NONCOMMERCIAL=1
 bash scripts/prepare_data.sh
@@ -150,6 +150,7 @@ Both models produce the same ONNX contract (`waveform float32[batch, 64600]` in,
 
 | Symptom | Fix |
 |---|---|
+| `could not read Username for 'https://github.com'` | `REPO_URL` points at a private repo: add a `GITHUB_TOKEN` Colab secret, or use the public repo |
 | `HF_TOKEN is not set` / 401 / 403 on IndicVoices | Accept the dataset terms with the **same** account that owns the token; check the Colab secret has notebook access |
 | `Requested holdout generator 'veena' is not present` | MLAAD's directory names changed upstream. The error lists the available generators; set `MLAAD_DEV_GENERATORS` / `MLAAD_TEST_GENERATORS` to two of them |
 | `ResourceLimitExceeded` on SageMaker | GPU quota is 0; see B.1 step 1 |
