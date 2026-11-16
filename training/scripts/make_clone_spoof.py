@@ -128,8 +128,8 @@ def indic_references(candidates: pd.DataFrame, language: str, revision: str | No
             texts.append((speaker, text))
         duration = float(record.get("duration") or 0.0)
         have = sum(1 for v in refs.values() if v)
-        wanted = speaker in refs or have < speakers_needed  # only as many speakers as needed
-        if (speaker in ours and wanted and len(refs[speaker]) < refs_per_speaker
+        wanted = bool(refs.get(speaker)) or have < speakers_needed  # only as many speakers as needed
+        if (speaker in ours and wanted and len(refs.get(speaker, ())) < refs_per_speaker
                 and 3.0 <= duration <= 12.0 and words >= 3):
             try:
                 wav, rate = decode(record["audio_filepath"])
