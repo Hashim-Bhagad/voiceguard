@@ -39,6 +39,7 @@ this in its own virtualenv (.clone-env). Run it from training/:
 from __future__ import annotations
 
 import argparse
+import inspect
 import io
 import json
 import os
@@ -220,20 +221,32 @@ class IndicF5:
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self._infer, self._prep = infer_process, preprocess_ref_audio_text
+        _patch_torchaudio_load()
         weights = hf_hub_download(self.REPO, "model.safetensors", token=token)
         vocab = hf_hub_download(self.REPO, "checkpoints/vocab.txt", token=token)
         state = load_file(weights)
-        ema = {"ema_model." + k[len("ema_model._orig_mod."):]: v.contiguous()
-               for k, v in state.items() if k.startswith("ema_model._orig_mod.")}
+        prefix = "ema_model._orig_mod."
+        ema = {k[len(prefix):]: v.contiguous() for k, v in state.items() if k.startswith(prefix)}
         voc = {k[len("vocoder._orig_mod."):]: v for k, v in state.items() if k.startswith("vocoder._orig_mod.")}
+        del state
         if not ema:
             raise RuntimeError(f"{self.REPO}: no ema_model weights found; the checkpoint layout changed")
-        ckpt = Path(workdir) / "indicf5_ema.safetensors"
-        save_file(ema, str(ckpt))
-        del state, ema
-        self.model = load_model(DiT, self.DIT, ckpt_path=str(ckpt), mel_spec_type="vocos",
-                                vocab_file=vocab, device=self.device)
-        ckpt.unlink(missing_ok=True)
+        if "ckpt_path" in inspect.signature(load_model).parameters:
+            # Upstream F5-TTS: load_model reads the checkpoint itself (expects "ema_model.*" keys).
+            ckpt = Path(workdir) / "indicf5_ema.safetensors"
+            save_file({"ema_model." + k: v for k, v in ema.items()}, str(ckpt))
+            self.model = load_model(DiT, self.DIT, ckpt_path=str(ckpt), mel_spec_type="vocos",
+                                    vocab_file=vocab, device=self.device)
+            ckpt.unlink(missing_ok=True)
+        else:
+            # IndicF5's bundled f5_tts: load_model only builds the network; load the weights here.
+            self.model = load_model(DiT, self.DIT, mel_spec_type="vocos", vocab_file=vocab, device=self.device)
+            missing, unexpected = self.model.load_state_dict(ema, strict=False)
+            missing = [k for k in missing if "mel_spec" not in k]  # STFT buffers are rebuilt in code
+            if missing or unexpected:
+                raise RuntimeError(f"IndicF5 weights do not fit the model: missing={missing[:5]} "
+                                   f"unexpected={list(unexpected)[:5]}")
+            self.model = self.model.to(self.device, dtype=torch.float32).eval()
         self.vocoder = load_vocoder(vocoder_name="vocos", is_local=False, device=self.device)
         if voc:
             self.vocoder.load_state_dict(voc, strict=False)
@@ -243,6 +256,19 @@ class IndicF5:
         audio, _rate, _ = self._infer(ref_audio, ref_text, text, self.model, self.vocoder,
                                       mel_spec_type="vocos", speed=1.0, device=self.device)
         return np.asarray(audio, dtype=np.float32)  # 24 kHz
+
+
+def _patch_torchaudio_load() -> None:
+    """f5_tts reads the reference with torchaudio.load, which in torchaudio >= 2.9 needs
+    torchcodec (absent on Colab). Route it through soundfile for the WAVs we write."""
+    import torch
+    import torchaudio
+
+    def load(path, *args, **kwargs):
+        wav, rate = sf.read(str(path), dtype="float32", always_2d=True)
+        return torch.from_numpy(np.ascontiguousarray(wav.T)), rate
+
+    torchaudio.load = load
 
 
 def plausible(audio: np.ndarray, rate: int, text: str) -> str | None:
