@@ -78,19 +78,32 @@ The split logic prevents the usual ways an anti-spoofing EER gets inflated:
 
 ### Results so far
 
-Held-out **test** split: 454 clips, 175 genuine, 279 spoof. Every spoof comes from a TTS engine **unseen in training** (Speechify, Kokoro).
+Held-out **test** split: 3,733 clips (1,810 genuine, 1,923 spoof) in English, Hindi, Bengali, Marathi and Tamil. Every spoof comes from a generator **unseen in training**: Speechify, Kokoro, IndicF5 (Hindi) and In-the-Wild's unknown deepfake tools.
 
 | Model | Trained on | Test EER ↓ | ROC-AUC ↑ |
 |---|---|---:|---:|
 | AASIST-L, original ASVspoof 2019 weights (no fine-tuning) | none | 43.4% | n/a |
-| **AASIST-L, fine-tuned** (laptop CPU, best of 3 epochs) | 1,108 English clips | **25.3%** | **0.844** |
-| XLS-R + AASIST, full corpus | all 5 sources | *run [`training/cloud/`](training/cloud/README.md)* | |
+| AASIST-L, fine-tuned (laptop CPU, 454-clip English test) | 1,108 English clips | 25.3% | 0.844 |
+| **XLS-R 300M + AASIST, top 8 of 24 layers fine-tuned** (Colab T4, 27 min) | 6,646 clips, all 5 sources | **2.97%** | **0.996** |
 
-Fine-tuning cut the error on unseen generators by **18 points absolute (42% relative)**, after a single epoch on 1,108 clips. The first run was CPU-bound (1.5 clips/s on a laptop) and English-only. The full multilingual corpus and the XLS-R model are what the GPU pipeline in [`training/cloud/`](training/cloud/README.md) is for.
+XLS-R + AASIST on the test split, broken down:
+
+| Slice | Clips | EER | Clones missed (FNR) |
+|---|---:|---:|---:|
+| English | 3,255 | 3.54% | 0.2% |
+| Hindi | 203 | 0.99% | 0.0% |
+| Unseen TTS (Speechify, Kokoro, IndicF5) | 378 | n/a | 0.0% |
+| In-the-Wild deepfakes | 1,545 | n/a | 0.3% |
+
+* **Run:** 101M of 316M parameters trainable (XLS-R layers 16-23, the layer-weighting head and the AASIST back-end). fp16 mixed precision, balanced (label × language) sampling. Dev EER was best (9.04%) at epoch 5, and training stopped early after epoch 9.
+* **Thresholds:** the dev threshold is conservative on test. At that threshold it misses 0.2% of clones but flags 13.8% of genuine clips, almost all of them noisy In-the-Wild recordings (18.1% flagged, against 2.4% on clean sources). The dev split is small (1,185 clips), so recalibrating the threshold on a larger dev set is the next step.
+* **Language coverage:** Bengali, Marathi and Tamil only have genuine clips in test (false-positive rate 0%, 4.3% and 1.2%), so the model's behaviour on clones in those languages is not measured yet.
+
+The full corpus and the larger model took the error on unseen generators from 25.3% to 2.97%. The two numbers come from different test sets, so treat this as a direction rather than an exact ratio.
 
 <p align="center"><img src="docs/images/aasist_l_training_curve.png" width="640" alt="AASIST-L fine-tuning curve"></p>
 
-Train loss keeps falling while dev EER is best at epoch 1. With ~1.1k clips the model starts memorising the three training TTS systems, which is exactly why the next run uses the full corpus and keeps generator holdout strict.
+The first CPU run of AASIST-L, on 1.1k clips: train loss keeps falling, but dev EER is best at epoch 1, a sign the model was memorising its three training TTS systems. That is why the GPU run uses the full corpus and keeps generator holdout strict.
 
 ### What "fine-tuned all layers" actually means
 
