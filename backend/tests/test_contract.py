@@ -108,3 +108,33 @@ def test_verify_file_endpoint():
     assert data["privacy_attestation"]["zero_raw_audio_stored"] is True
     assert data["linguistic_score"] >= 0.50
 
+
+
+def test_spoof_operating_threshold_maps_to_half(monkeypatch):
+    import numpy as np
+    from app.core.config import get_settings
+    from app.services import model_registry as mr
+
+    class FakeSession:  # returns one fixed logit per window
+        def __init__(self, logit):
+            self.logit = logit
+
+        def get_inputs(self):
+            return [type("I", (), {"name": "waveform"})()]
+
+        def run(self, _outputs, feeds):
+            return [np.full(len(feeds["waveform"]), self.logit, dtype=np.float32)]
+
+    threshold = 0.05393
+    settings = get_settings()
+    monkeypatch.setattr(settings, "model_backend", "aasist-l-onnx")
+    audio = np.zeros(16000, dtype=np.float32)
+
+    raw_logit = float(np.log(threshold / (1 - threshold)))  # model output exactly at the threshold
+    monkeypatch.setattr(mr, "_try_onnx", lambda _p: FakeSession(raw_logit))
+
+    monkeypatch.setattr(settings, "spoof_operating_threshold", 0.5)
+    assert abs(mr.score_spoof(audio) - threshold) < 1e-4  # default: plain probability
+
+    monkeypatch.setattr(settings, "spoof_operating_threshold", threshold)
+    assert abs(mr.score_spoof(audio) - 0.5) < 1e-4  # shifted: threshold reads as 0.5

@@ -172,11 +172,25 @@ def _aggregate(logits: np.ndarray) -> float:
     return float(np.mean(logits))
 
 
+def _calibration_offset() -> float:
+    """Logit of SPOOF_OPERATING_THRESHOLD; subtracting it maps that threshold to 0.5.
+
+    A pure shift in logit space: the ranking of clips (and so EER/AUC) is
+    unchanged, only where 0.5 falls moves.
+    """
+    threshold = float(get_settings().spoof_operating_threshold)
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(f"SPOOF_OPERATING_THRESHOLD must be in (0, 1), got {threshold}")
+    return float(np.log(threshold / (1.0 - threshold)))
+
+
 def score_spoof(waveform_16k: np.ndarray) -> float:
     """Return calibrated-model input evidence in [0, 1], where higher is more spoof-like.
 
     AASIST-L ONNX exports a single ``spoof_logit`` (spoof logit minus bonafide
-    logit). This conversion exactly preserves the two-class softmax spoof score.
+    logit). With SPOOF_OPERATING_THRESHOLD at its default of 0.5 this conversion
+    exactly preserves the two-class softmax spoof score; otherwise the score is
+    shifted so that threshold reads as 0.5 (see _calibration_offset).
     """
     settings = get_settings()
     if settings.model_backend == "aasist-l-onnx":
@@ -185,7 +199,7 @@ def score_spoof(waveform_16k: np.ndarray) -> float:
             windows = _aasist_windows(waveform_16k)
             output = session.run(None, {session.get_inputs()[0].name: windows})[0]
             logits = np.asarray(output, dtype=np.float64).reshape(-1)
-            return _sigmoid(_aggregate(logits))
+            return _sigmoid(_aggregate(logits) - _calibration_offset())
     if waveform_16k.size == 0:
         return 0.0
     # Development-only fallback: never describe this heuristic as model output.
