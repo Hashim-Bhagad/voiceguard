@@ -113,8 +113,15 @@ else
   else
     # The TTS packages pin NumPy < 2 and a newer Transformers than training uses, so
     # they live in their own virtualenv that still sees the system CUDA PyTorch.
-    if [[ ! -x "$CLONE_ENV/bin/python" ]]; then
-      "$PY" -m venv --system-site-packages "$CLONE_ENV"
+    if [[ ! -x "$CLONE_ENV/bin/python" ]] || ! "$CLONE_ENV/bin/python" -m pip --version >/dev/null 2>&1; then
+      rm -rf "$CLONE_ENV"
+      # Colab's Python ships without ensurepip, so plain venv cannot seed pip there;
+      # virtualenv brings its own copy.
+      "$PY" -m venv --system-site-packages "$CLONE_ENV" 2>/dev/null || {
+        rm -rf "$CLONE_ENV"
+        "$PY" -m pip install -q virtualenv
+        "$PY" -m virtualenv -q --system-site-packages "$CLONE_ENV"
+      }
     fi
     pkgs=""
     [[ "$engines" == *xtts* ]] && pkgs="$pkgs coqui-tts"
