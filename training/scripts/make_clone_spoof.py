@@ -199,19 +199,50 @@ class XTTS:
 
 
 class IndicF5:
-    def __init__(self, token):
-        import torch
-        from transformers import AutoModel
+    """IndicF5 loaded straight through its f5_tts package, not transformers.AutoModel.
 
-        self.model = AutoModel.from_pretrained("ai4bharat/IndicF5", trust_remote_code=True, token=token)
-        if torch.cuda.is_available() and hasattr(self.model, "to"):
-            self.model = self.model.to("cuda")
+    The hub wrapper (model.py) builds the model inside PreTrainedModel.__init__, which
+    Transformers 5 runs on the "meta" device, and the vocoder set-up then fails. XTTS needs
+    Transformers 5 in the same environment, so the weights are loaded here directly:
+    model.safetensors holds the torch.compile'd EMA model ("ema_model._orig_mod.*") and
+    the Vocos vocoder ("vocoder._orig_mod.*").
+    """
+
+    REPO = "ai4bharat/IndicF5"
+    DIT = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
+
+    def __init__(self, token, workdir):
+        import torch
+        from f5_tts.infer.utils_infer import infer_process, load_model, load_vocoder, preprocess_ref_audio_text
+        from f5_tts.model import DiT
+        from huggingface_hub import hf_hub_download
+        from safetensors.torch import load_file, save_file
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._infer, self._prep = infer_process, preprocess_ref_audio_text
+        weights = hf_hub_download(self.REPO, "model.safetensors", token=token)
+        vocab = hf_hub_download(self.REPO, "checkpoints/vocab.txt", token=token)
+        state = load_file(weights)
+        ema = {"ema_model." + k[len("ema_model._orig_mod."):]: v.contiguous()
+               for k, v in state.items() if k.startswith("ema_model._orig_mod.")}
+        voc = {k[len("vocoder._orig_mod."):]: v for k, v in state.items() if k.startswith("vocoder._orig_mod.")}
+        if not ema:
+            raise RuntimeError(f"{self.REPO}: no ema_model weights found; the checkpoint layout changed")
+        ckpt = Path(workdir) / "indicf5_ema.safetensors"
+        save_file(ema, str(ckpt))
+        del state, ema
+        self.model = load_model(DiT, self.DIT, ckpt_path=str(ckpt), mel_spec_type="vocos",
+                                vocab_file=vocab, device=self.device)
+        ckpt.unlink(missing_ok=True)
+        self.vocoder = load_vocoder(vocoder_name="vocos", is_local=False, device=self.device)
+        if voc:
+            self.vocoder.load_state_dict(voc, strict=False)
 
     def __call__(self, text, lang, ref_path, ref_text):
-        audio = np.asarray(self.model(text, ref_audio_path=ref_path, ref_text=ref_text))
-        if audio.dtype == np.int16:
-            return audio.astype(np.float32) / 32768.0
-        return audio.astype(np.float32)
+        ref_audio, ref_text = self._prep(ref_path, ref_text)
+        audio, _rate, _ = self._infer(ref_audio, ref_text, text, self.model, self.vocoder,
+                                      mel_spec_type="vocos", speed=1.0, device=self.device)
+        return np.asarray(audio, dtype=np.float32)  # 24 kHz
 
 
 def plausible(audio: np.ndarray, rate: int, text: str) -> str | None:
@@ -315,7 +346,7 @@ def main() -> None:
         for i, (lang, engine, speaker, (ref_wav, ref_rate, ref_text), text) in enumerate(work, 1):
             if engine not in engines:
                 print(f"\nloading {engine} ...", flush=True)
-                engines[engine] = XTTS() if engine == "xtts" else IndicF5(token)
+                engines[engine] = XTTS() if engine == "xtts" else IndicF5(token, tmp)
             ref_path = Path(tmp) / "ref.wav"
             sf.write(ref_path, ref_wav, ref_rate)
             try:
