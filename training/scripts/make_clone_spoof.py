@@ -81,6 +81,18 @@ def clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+REF_RATE = 16000
+
+
+def to_16k(wav: np.ndarray, rate: int) -> np.ndarray:
+    """Keep references small in RAM: 16 kHz, at most 12 s (both engines resample anyway)."""
+    import soxr
+
+    if rate != REF_RATE:
+        wav = soxr.resample(wav, rate, REF_RATE)
+    return np.ascontiguousarray(wav[: 12 * REF_RATE], dtype=np.float32)
+
+
 def decode(value) -> tuple[np.ndarray, int]:
     """Mono float32 + rate from an Audio(decode=False) cell (same as ingest_indicvoices)."""
     raw = value.get("bytes") if isinstance(value, dict) else None
@@ -115,14 +127,16 @@ def indic_references(candidates: pd.DataFrame, language: str, revision: str | No
         if 4 <= words <= 30 and speaker not in ours:
             texts.append((speaker, text))
         duration = float(record.get("duration") or 0.0)
-        if (speaker in ours and len(refs[speaker]) < refs_per_speaker and 3.0 <= duration <= 12.0
-                and words >= 3):
+        have = sum(1 for v in refs.values() if v)
+        wanted = speaker in refs or have < speakers_needed  # only as many speakers as needed
+        if (speaker in ours and wanted and len(refs[speaker]) < refs_per_speaker
+                and 3.0 <= duration <= 12.0 and words >= 3):
             try:
                 wav, rate = decode(record["audio_filepath"])
-                refs[speaker].append((wav, rate, text))
+                refs[speaker].append((to_16k(wav, rate), REF_RATE, text))
             except Exception as exc:  # noqa: BLE001
                 print(f"    ! unreadable reference: {exc}")
-        full = sum(1 for v in refs.values() if v)
+        full = sum(1 for v in refs.values() if len(v) >= refs_per_speaker)
         if (full >= speakers_needed and len(texts) >= texts_needed) or index > 200_000:
             break
     random.Random(seed).shuffle(texts)
@@ -145,7 +159,7 @@ def english_references(candidates_dir: Path, data_root: Path, speakers_needed: i
         clips = []
         for clip in rows.clip_path:
             wav, rate = sf.read(str(data_root / clip), dtype="float32", always_2d=False)
-            clips.append((wav if wav.ndim == 1 else wav.mean(axis=1), int(rate), ""))
+            clips.append((to_16k(wav if wav.ndim == 1 else wav.mean(axis=1), int(rate)), REF_RATE, ""))
         refs[speaker] = clips
     return refs
 
@@ -174,7 +188,10 @@ class XTTS:
                              "Set COQUI_TOS_AGREED=1 to accept it, or drop xtts from --engines.")
         from TTS.api import TTS
 
-        self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cuda")
+        import torch
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
     def __call__(self, text, lang, ref_path, ref_text):
         text = text[: XTTS_MAX_CHARS.get(lang, 200)]
