@@ -87,6 +87,18 @@ def load_local_env() -> None:
             os.environ.setdefault(key.strip(), value)
 
 
+# Hugging Face rate-limits free accounts to 1000 API calls per 5-minute window,
+# and a dataset of thousands of small files can use that up. Retrying sooner than
+# the window reset just burns the next attempt, so wait the window out.
+RATE_LIMIT_WAIT_S = 310.0
+MAX_STALLED_ROUNDS = 6  # rounds in a row with no new files before giving up (~30 min)
+
+
+def is_rate_limited(text: str) -> bool:
+    text = str(text)
+    return "429" in text or "Too Many Requests" in text or "rate limit" in text.lower()
+
+
 def retry(operation, *, attempts: int = 6, base_delay: float = 3.0, what: str = "download"):
     """Retry a flaky network call with exponential backoff.
 
@@ -104,6 +116,8 @@ def retry(operation, *, attempts: int = 6, base_delay: float = 3.0, what: str = 
             if attempt == attempts:
                 raise
             delay = base_delay * (2 ** (attempt - 1))
+            if is_rate_limited(exc):
+                delay = RATE_LIMIT_WAIT_S
             print(
                 f"  ! {what} attempt {attempt}/{attempts} failed ({type(exc).__name__}: "
                 f"{str(exc)[:160]}); resuming in {delay:.0f}s"
@@ -159,12 +173,28 @@ def download_snapshot(
     local_dir = Path(local_dir)
     print(f"{repo_id} @ {resolved}: expecting {len(expected)} files matching {allow_patterns}")
 
-    for attempt in range(1, attempts + 1):
+    # Keep going while files keep arriving; give up only after MAX_STALLED_ROUNDS
+    # rounds in a row with no progress. snapshot_download swallows HTTP 429 (it
+    # falls back to "Returning existing local_dir"), so a round with no progress
+    # is treated as a rate limit and waits out the 5-minute window.
+    stalled, previous, attempt = 0, None, 0
+    while True:
+        attempt += 1
         missing = [name for name in expected if not (local_dir / name).is_file()]
         if not missing:
             print(f"  all {len(expected)} files present")
             return resolved, expected
-        print(f"  attempt {attempt}/{attempts}: {len(missing)} of {len(expected)} files missing")
+        if previous is not None:
+            stalled = stalled + 1 if len(missing) >= previous else 0
+            if stalled > max(attempts, MAX_STALLED_ROUNDS):
+                break
+            if stalled:
+                print(f"  no progress (likely Hugging Face rate limit); waiting {RATE_LIMIT_WAIT_S:.0f}s")
+                time.sleep(RATE_LIMIT_WAIT_S)
+            else:
+                time.sleep(3.0)
+        previous = len(missing)
+        print(f"  round {attempt}: {len(missing)} of {len(expected)} files missing")
         try:
             snapshot_download(
                 repo_id=repo_id,
@@ -177,13 +207,11 @@ def download_snapshot(
             )
         except Exception as exc:  # noqa: BLE001
             print(f"  ! transfer error ({type(exc).__name__}: {str(exc)[:160]})")
-        if attempt < attempts:
-            time.sleep(min(60.0, 3.0 * (2 ** (attempt - 1))))
 
     still_missing = [name for name in expected if not (local_dir / name).is_file()]
     raise RuntimeError(
         f"{repo_id}: {len(still_missing)} of {len(expected)} files are still missing after "
-        f"{attempts} attempts (first: {still_missing[0]}). Refusing to continue with a partial "
+        f"{attempt} rounds (first: {still_missing[0]}). Refusing to continue with a partial "
         "dataset -- the label balance would be silently wrong. Re-run when the network is stable."
     )
 
@@ -244,12 +272,14 @@ def download_files(
         except Exception as exc:  # noqa: BLE001
             return name, f"{type(exc).__name__}: {str(exc)[:120]}"
 
-    for attempt in range(1, attempts + 1):
+    stalled, attempt = 0, 0
+    while True:
+        attempt += 1
         missing = [name for name in files if not (local_dir / name).is_file()]
         if not missing:
             print(f"  all {len(files)} files present")
             return
-        print(f"  attempt {attempt}/{attempts}: fetching {len(missing)} of {len(files)} files")
+        print(f"  round {attempt}: fetching {len(missing)} of {len(files)} files")
         errors: list[str] = []
         done = 0
         with ThreadPoolExecutor(max_workers=6) as pool:
@@ -261,14 +291,22 @@ def download_files(
                     errors.append(error)
                 if done % 100 == 0 or done == len(missing):
                     print(f"    {done}/{len(missing)} ({len(errors)} errors)")
-        if errors:
-            print(f"  ! {len(errors)} transfer errors, first: {errors[0]}")
-        if attempt < attempts:
-            time.sleep(min(30.0, 2.0 * attempt))
+        if not errors:
+            continue
+        print(f"  ! {len(errors)} transfer errors, first: {errors[0]}")
+        progressed = len(errors) < len(missing)
+        stalled = 0 if progressed else stalled + 1
+        if stalled > max(attempts, MAX_STALLED_ROUNDS):
+            break
+        if any(is_rate_limited(e) for e in errors):
+            print(f"  Hugging Face rate limit hit; waiting {RATE_LIMIT_WAIT_S:.0f}s for the window to reset")
+            time.sleep(RATE_LIMIT_WAIT_S)
+        else:
+            time.sleep(min(30.0, 2.0 * (stalled + 1)))
 
     still = [name for name in files if not (local_dir / name).is_file()]
     raise RuntimeError(
-        f"{repo_id}: {len(still)} of {len(files)} files still missing after {attempts} attempts "
+        f"{repo_id}: {len(still)} of {len(files)} files still missing after {attempt} rounds "
         f"(first: {still[0]}). Refusing to continue with a partial download."
     )
 
