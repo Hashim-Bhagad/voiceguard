@@ -17,7 +17,7 @@ Your laptop's `training/data/`, `training/.env` and `backend/.env` stay on your 
 ## 0. One-time setup (both platforms)
 
 1. **Push the code to GitHub.** Colab and SageMaker clone from GitHub, so they only see what has been pushed. The notebook defaults to the public repo [`Hashim-Bhagad/voiceguard`](https://github.com/Hashim-Bhagad/voiceguard) on `main`. If you train from a private fork, add a `GITHUB_TOKEN` Colab secret (a token with read access to it) and change `REPO_URL`.
-2. **Accept the dataset terms.** Sign in to Hugging Face and accept the gated-access terms of [ai4bharat/IndicVoices](https://huggingface.co/datasets/ai4bharat/IndicVoices) and, if you use MLAAD (step 4), [mueller91/MLAAD](https://huggingface.co/datasets/mueller91/MLAAD). Both approve instantly.
+2. **Accept the gated terms.** Sign in to Hugging Face and accept the gated-access terms of [ai4bharat/IndicVoices](https://huggingface.co/datasets/ai4bharat/IndicVoices), of [ai4bharat/IndicF5](https://huggingface.co/ai4bharat/IndicF5) (the voice-cloning model for Indian languages), and, if you use MLAAD (step 4), of [mueller91/MLAAD](https://huggingface.co/datasets/mueller91/MLAAD). All approve instantly.
 3. **Create a read token** at <https://huggingface.co/settings/tokens> (type *Read*). It starts with `hf_`.
 4. **Decide on MLAAD.** MLAAD is the only source here with real Indic-language deepfakes (9 Hindi TTS systems), so it matters for accuracy. It is licensed CC-BY-NC-4.0: fine for coursework and research, not for a commercial product. It is on by default in the notebook; switch it off if that licence doesn't fit you.
 
@@ -44,6 +44,8 @@ Both use the same data, splits and ONNX contract, so their test numbers are dire
    - `MODEL`: `xlsr_aasist` or `aasist_l`
    - `REPO_URL` / `BRANCH`: leave as they are unless you train from your own fork or branch
    - `ACCEPT_MLAAD_NONCOMMERCIAL`: see step 0.4
+   - `MAKE_CLONES` / `CLONES_PER_LANG`: zero-shot voice clones of the bona-fide speakers, made once and cached in Drive. 200 per language takes about 1 hour on a T4.
+   - `ACCEPT_XTTS_NONCOMMERCIAL`: XTTS-v2 (the English/Hindi cloner) is under the Coqui Public Model License, which is non-commercial. Without it, only IndicF5 clones are made.
    - `MAX_HOURS`: stop a little before your session limit (free Colab is capped and can disconnect earlier)
 5. **Run everything:** `Runtime → Run all`. Approve the Google Drive prompt.
 
@@ -52,9 +54,9 @@ What happens:
 | Cell | First run | Later runs |
 |---|---|---|
 | Code + deps | clone, `pip install -r requirements-gpu.txt` (torch is preinstalled) | `git pull` |
-| Data | downloads and preprocesses all sources (~30-60 min, mostly the ~7 GB In-the-Wild archive), then saves a ~3-4 GB tarball to `MyDrive/voiceguard/` | restores the tarball in a few minutes |
+| Data | downloads and preprocesses all sources (~30-60 min, mostly the ~7 GB In-the-Wild archive), generates voice clones (~1 h), then saves a ~3-4 GB tarball to `MyDrive/voiceguard/` | restores the tarball in a few minutes; re-saves it if a new source (such as clones) was added |
 | Train | starts from pretrained weights; writes `last.pt` and `best.pt` to Drive every epoch | **resumes** from `last.pt` |
-| Evaluate / export | test EER on unseen generators, ONNX export, fine-tune report, figures | |
+| Evaluate / export | overall test EER, strict EER on unseen generators, clones of unseen speakers, ONNX export, fine-tune report, figures | |
 
 **If Colab disconnects**, reconnect and *Run all* again. Data comes back from Drive and training continues from the last finished epoch.
 
@@ -151,7 +153,8 @@ Both models produce the same ONNX contract (`waveform float32[batch, 64600]` in,
 | Symptom | Fix |
 |---|---|
 | `could not read Username for 'https://github.com'` | `REPO_URL` points at a private repo: add a `GITHUB_TOKEN` Colab secret, or use the public repo |
-| `GatedRepoError` / 401 / 403 on IndicVoices or MLAAD | Accept the dataset terms with the **same** account that owns the token; check the Colab secret has notebook access |
+| `GatedRepoError` / 401 / 403 on IndicVoices, MLAAD or IndicF5 | Accept the terms with the **same** account that owns the token; check the Colab secret has notebook access |
+| Clone step fails, or you want to skip it | Set `MAKE_CLONES = False` (or `CLONE_ENGINES=xtts` / `indicf5` to use one engine). Training works without clones, and the step is skipped once `data/candidates/clones.csv` exists |
 | `Requested holdout generator 'veena' is not present` | MLAAD's directory names changed upstream. The error lists the available generators; set `MLAAD_DEV_GENERATORS` / `MLAAD_TEST_GENERATORS` to two of them |
 | `ResourceLimitExceeded` on SageMaker | GPU quota is 0; see B.1 step 1 |
 | CUDA out of memory | Lower `data.batch_size` in the config and raise `train.grad_accum_steps` by the same factor |

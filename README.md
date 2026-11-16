@@ -59,7 +59,7 @@ The acoustic signal comes from a model **fine-tuned in this repo** and served as
 
 ### Training data and splits
 
-`training/scripts/prepare_data.sh` builds one manifest from five sources, all downloaded from Hugging Face:
+`training/scripts/prepare_data.sh` builds one manifest from five downloaded sources plus two generated ones:
 
 | Source | Contributes | Languages |
 |---|---|---|
@@ -68,13 +68,18 @@ The acoustic signal comes from a model **fine-tuned in this repo** and served as
 | [IndicVoices](https://huggingface.co/datasets/ai4bharat/IndicVoices) | bona-fide spontaneous speech | Hindi, Marathi, Tamil, Bengali |
 | [MLAAD](https://huggingface.co/datasets/mueller91/MLAAD) | deepfakes from 9 Hindi TTS systems (IndicF5, Veena, XTTS v2, Bark…) | Hindi |
 | Vocoder re-synthesis of held-out IndicVoices speakers | same-channel Indic spoof (Griffin-Lim, mel-Griffin-Lim, phase reset) | Indic |
+| **Zero-shot voice clones** of the bona-fide speakers ([`make_clone_spoof.py`](training/scripts/make_clone_spoof.py)) | 200 clones per language from a few seconds of each speaker's real voice: [XTTS-v2](https://huggingface.co/coqui/XTTS-v2) (English, Hindi) and [IndicF5](https://huggingface.co/ai4bharat/IndicF5) (Hindi, Bengali, Tamil, Marathi) | all five |
 
 The split logic prevents the usual ways an anti-spoofing EER gets inflated:
 
 * **Speaker-disjoint.** No speaker appears in more than one split, so the model can't recognise voices instead of artefacts.
-* **Generator holdout.** Entire TTS systems are kept out of training. Dev uses ElevenLabs (+ Veena); test uses Speechify, Kokoro (+ IndicF5). In-the-Wild's spoofs carry no generator labels, so they are split by speaker instead (see the caveat under Results).
+* **Generator holdout.** Entire TTS systems are kept out of training. Dev uses ElevenLabs (+ Veena); test uses Speechify, Kokoro (+ Bark). A held-out generator's clips are never moved into train, even to keep a speaker together; the speaker's other clips move instead.
+* **Split by speaker where a generator can't be held out.** In-the-Wild's deepfakes carry no generator labels, and the voice clones are deliberately clones of the bona-fide speakers. Both are split together with their speaker's real clips, so every cloned voice has genuine recordings in the same split. The model can't separate "real" from "clone" by recognising the voice, and test clones are clones of people it never heard. `eval.py` reports these "unseen speaker, seen tool" clips separately from the strict EER on unseen generators.
 * **Balanced sampling** by (label × language), so "English" and "spoof" never become correlated within a batch.
-* **Label-neutral augmentation.** Telephony narrowband round trip, MUSAN-style noise at 5-20 dB SNR, room impulse responses and gain are applied with equal probability to both classes, so the augmentation itself can't become a feature.
+* **Label-neutral augmentation.** Every augmentation is applied with equal probability to both classes, so it can't become a feature (see [`src/channel_aug.py`](training/src/channel_aug.py) and [`src/dataset.py`](training/src/dataset.py)):
+  * **[RawBoost](https://arxiv.org/abs/2111.04433)** (Tak, Kamble, Patino, Todisco and Evans, ICASSP 2022), on 40% of clips. It adds one of linear/non-linear convolutive noise, impulsive signal-dependent noise, stationary signal-independent noise, or the first two in series. These model device and channel nuisances without needing any noise corpus. The wav2vec 2.0 + AASIST results this model follows were trained with RawBoost. Ours is reimplemented from the paper and the [reference code](https://github.com/TakHemlata/RawBoost-antispoofing) with the paper's default parameters. Two deliberate differences: FFT convolution, so it stays cheap on two CPU cores, and loudness matched back to the input.
+  * **Lossy codec round trips**, on 40% of clips. Each clip is encoded and decoded in memory through Opus at WhatsApp/VoIP bitrates (8-32 kbps), MP3, AAC or G.711 μ-law/A-law. This was added after genuine English speech sent through WhatsApp-style compression was flagged as fake 80% of the time in the real-world test.
+  * Telephony narrowband round trip, MUSAN-style noise at 5-20 dB SNR, room impulse responses and ±3 dB gain.
 
 ### Results so far
 
@@ -198,6 +203,7 @@ docs/images/  README figures
 * A risk score is **not proof of identity**. The UI says so, and the challenge step exists for that reason.
 * MLAAD is CC-BY-NC-4.0. A model trained with it is for research and coursework, not a commercial product.
 * The vocoded Indic clips teach vocoder artefacts, not voice cloning. Report them separately rather than as an "Indic deepfake EER".
+* The XTTS-v2 clones are under the Coqui Public Model License, which is non-commercial, like MLAAD. IndicF5 is MIT. Set `MAKE_CLONES=0` or drop `xtts` from `CLONE_ENGINES` for a training set without them.
 * The dev-set threshold of the first run did not transfer to the test generators (65% of genuine clips flagged at that threshold), so calibrate thresholds on the full-corpus run before deploying.
 
 ## Team
