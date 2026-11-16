@@ -95,8 +95,20 @@ MAX_STALLED_ROUNDS = 6  # rounds in a row with no new files before giving up (~3
 
 
 def is_rate_limited(text: str) -> bool:
+    # Match the status phrase, not a bare "429": request IDs are hex and can contain it.
     text = str(text)
-    return "429" in text or "Too Many Requests" in text or "rate limit" in text.lower()
+    return "429 Client Error" in text or "Too Many Requests" in text or "rate limit" in text.lower()
+
+
+def access_error(text: str) -> str | None:
+    """A permanent auth/gating failure that retrying cannot fix, explained."""
+    text = str(text)
+    if "GatedRepoError" in text or "gated" in text.lower():
+        return ("this dataset is gated: open its page on huggingface.co with the account that owns "
+                "HF_TOKEN and accept the access terms")
+    if "401 Client Error" in text or "403 Client Error" in text:
+        return "HF_TOKEN was rejected or lacks access to this dataset"
+    return None
 
 
 def retry(operation, *, attempts: int = 6, base_delay: float = 3.0, what: str = "download"):
@@ -207,6 +219,8 @@ def download_snapshot(
             )
         except Exception as exc:  # noqa: BLE001
             print(f"  ! transfer error ({type(exc).__name__}: {str(exc)[:160]})")
+            if reason := access_error(f"{type(exc).__name__}: {exc}"):
+                raise RuntimeError(f"{repo_id}: {reason}.\n  https://huggingface.co/datasets/{repo_id}") from exc
 
     still_missing = [name for name in expected if not (local_dir / name).is_file()]
     raise RuntimeError(
@@ -294,6 +308,8 @@ def download_files(
         if not errors:
             continue
         print(f"  ! {len(errors)} transfer errors, first: {errors[0]}")
+        if len(errors) == len(missing) and (reason := access_error(errors[0])):
+            raise RuntimeError(f"{repo_id}: {reason}.\n  https://huggingface.co/datasets/{repo_id}")
         progressed = len(errors) < len(missing)
         stalled = 0 if progressed else stalled + 1
         if stalled > max(attempts, MAX_STALLED_ROUNDS):

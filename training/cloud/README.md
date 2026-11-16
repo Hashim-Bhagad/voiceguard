@@ -17,7 +17,7 @@ Your laptop's `training/data/`, `training/.env` and `backend/.env` stay on your 
 ## 0. One-time setup (both platforms)
 
 1. **Push the code to GitHub.** Colab and SageMaker clone from GitHub, so they only see what has been pushed. The notebook defaults to the public repo [`Hashim-Bhagad/voiceguard`](https://github.com/Hashim-Bhagad/voiceguard) on `main`. If you train from a private fork, add a `GITHUB_TOKEN` Colab secret (a token with read access to it) and change `REPO_URL`.
-2. **Accept the IndicVoices terms.** Sign in to Hugging Face, open [ai4bharat/IndicVoices](https://huggingface.co/datasets/ai4bharat/IndicVoices) and accept the gated-access terms.
+2. **Accept the dataset terms.** Sign in to Hugging Face and accept the gated-access terms of [ai4bharat/IndicVoices](https://huggingface.co/datasets/ai4bharat/IndicVoices) and, if you use MLAAD (step 4), [mueller91/MLAAD](https://huggingface.co/datasets/mueller91/MLAAD). Both approve instantly.
 3. **Create a read token** at <https://huggingface.co/settings/tokens> (type *Read*). It starts with `hf_`.
 4. **Decide on MLAAD.** MLAAD is the only source here with real Indic-language deepfakes (9 Hindi TTS systems), so it matters for accuracy. It is licensed CC-BY-NC-4.0: fine for coursework and research, not for a commercial product. It is on by default in the notebook; switch it off if that licence doesn't fit you.
 
@@ -151,7 +151,7 @@ Both models produce the same ONNX contract (`waveform float32[batch, 64600]` in,
 | Symptom | Fix |
 |---|---|
 | `could not read Username for 'https://github.com'` | `REPO_URL` points at a private repo: add a `GITHUB_TOKEN` Colab secret, or use the public repo |
-| `HF_TOKEN is not set` / 401 / 403 on IndicVoices | Accept the dataset terms with the **same** account that owns the token; check the Colab secret has notebook access |
+| `GatedRepoError` / 401 / 403 on IndicVoices or MLAAD | Accept the dataset terms with the **same** account that owns the token; check the Colab secret has notebook access |
 | `Requested holdout generator 'veena' is not present` | MLAAD's directory names changed upstream. The error lists the available generators; set `MLAAD_DEV_GENERATORS` / `MLAAD_TEST_GENERATORS` to two of them |
 | `ResourceLimitExceeded` on SageMaker | GPU quota is 0; see B.1 step 1 |
 | CUDA out of memory | Lower `data.batch_size` in the config and raise `train.grad_accum_steps` by the same factor |
