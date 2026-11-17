@@ -8,7 +8,7 @@
     modal run --detach training/cloud/modal_train.py [--model aasist_l]
     modal volume get voiceguard outputs/xlsr_aasist_v2 ./runs/    # fetch results
 
-What it does, in a fresh container with an L4, A10G or T4 GPU (whichever is free first):
+What it does, in a fresh container with an A10G or L4 GPU (whichever is free first):
 
 1. Clones this repository at ``--branch`` (default main) and installs requirements-gpu.txt.
 2. Restores the processed dataset tarball from the ``voiceguard`` Volume. If it is not
@@ -72,8 +72,8 @@ def sh(cmd: str, cwd: str | None = None, what: str | None = None) -> None:
 @app.function(
     image=image,
     # First GPU type with free capacity wins: L4 sat in Modal's queue for 45 min once.
-    # A10G has the same 24 GB; T4 (16 GB) still fits batch 16 with fp16.
-    gpu=["L4", "A10G", "T4"],
+    # Both have 24 GB. No T4: it runs the clone engines and training at half the speed.
+    gpu=["A10G", "L4"],
     cpu=6,              # data loading + augmentation was the bottleneck on Colab's 2 vCPUs
     memory=24 * 1024,
     timeout=8 * 60 * 60,
