@@ -1,3 +1,4 @@
+import { wakeBackend } from '@/lib/backend'
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Alert, Button, Chip, Spinner } from '@heroui/react'
@@ -144,7 +145,7 @@ export default function Verify() {
                     <p className="max-w-xl text-[0.95rem] leading-relaxed text-muted">Generate a code, read it to the caller, and record their reply. Live codes expire after 30 seconds.</p>
                   </div>
                   <div className="flex flex-wrap gap-3">
-                    <Button variant="primary" onPress={() => create('live')}>Generate a live code</Button>
+                    <Button variant="primary" onHoverStart={wakeBackend} onFocus={wakeBackend} onPress={() => create('live')}>Generate a live code</Button>
                     <Button variant="secondary" onPress={() => create('demo')}>Try the demo</Button>
                   </div>
                 </>
@@ -202,7 +203,7 @@ export default function Verify() {
                       <div><Button variant="primary" onPress={recorder.stop}><Square aria-hidden className="size-3.5 fill-current" />Stop and verify · {recorder.seconds}s</Button></div>
                     </div>
                   ) : (
-                    <div><Button variant="primary" isDisabled={expired || recorder.state === 'requesting'} onPress={recorder.start}><Mic aria-hidden className="size-4" />{recorder.state === 'requesting' ? 'Allow microphone access' : 'Record the reply'}</Button></div>
+                    <div><Button variant="primary" isDisabled={expired || recorder.state === 'requesting'} onHoverStart={wakeBackend} onFocus={wakeBackend} onPress={recorder.start}><Mic aria-hidden className="size-4" />{recorder.state === 'requesting' ? 'Allow microphone access' : 'Record the reply'}</Button></div>
                   )}
                   {!busy && (
                     <button type="button" onClick={() => create(challenge.source)} className="inline-flex w-fit items-center gap-1.5 text-sm text-muted underline-offset-4 hover:text-foreground hover:underline">

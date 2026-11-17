@@ -197,7 +197,7 @@ Model weights (ONNX, CC-BY-NC-4.0): **[Hashim-Bhagad/voiceguard-xlsr-aasist-indi
 * **Model on disk.** The 1.26 GB model is larger than Agent37's 1 GB build upload, so it sits on the instance's persistent disk at `/root/models/`, outside the image, and survives sleep, restarts and image updates. It was copied there once from the training run's Drive folder.
 * **Why the full model.** An int8-quantised export was 3.5x smaller, but on the same 332 clips it scored 5.42% EER against 4.22%, caught 13 of 16 of the team's real voice clones against 16 of 16, and was no faster on CPU.
 * **Secrets.** `GROQ_API_KEY` (speech-to-text) and `CORS_ORIGINS` (the Vercel domain only) are instance environment variables, never baked into the image.
-* **Cold starts.** The page pings `/api/v1/health` on load to wake a sleeping backend. The first request after a sleep can take 10-30 s; after that, a clip takes about 3-9 s including transcription.
+* **Cold starts.** Nothing wakes the backend on page load: sample calls never need it. The workspace pings `/api/v1/health` on upload intent (opening the Upload or Record tab, pointing at the drop zone or a record button, dragging a file in), so the model loads while the person picks a file. A cold start takes 10-30 s; after that, a clip takes about 3-9 s including transcription.
 
 ## Repository layout
 

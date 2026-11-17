@@ -4,6 +4,7 @@ import { ArrowRightLeft, AudioLines, ChevronRight, FileAudio, KeyRound, Mic, Shi
 import { SCENARIOS } from '@/lib/analysis'
 import { useAnalysis } from '@/lib/AnalysisContext'
 import { useRecorder } from '@/lib/useRecorder'
+import { wakeBackend } from '@/lib/backend'
 import AudioScope from './AudioScope'
 
 const SCENARIO_ICON = { transfer: ArrowRightLeft, lock: KeyRound, shield: ShieldCheck, wave: AudioLines }
@@ -109,6 +110,9 @@ function UploadZone({ busy, onFile }) {
         aria-describedby="upload-help"
         onClick={() => !busy && input.current?.click()}
         onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && !busy) { e.preventDefault(); input.current?.click() } }}
+        onPointerEnter={wakeBackend}
+        onFocus={wakeBackend}
+        onDragEnter={wakeBackend}
         onDragOver={e => { e.preventDefault(); if (!busy) setDragging(true) }}
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); take(e.dataTransfer.files?.[0]) }}
@@ -155,7 +159,7 @@ function RecordPanel({ busy, onBlob }) {
             {canStop ? 'Stop and analyze' : `Keep talking · ${MIN_SECONDS - recorder.seconds}s`}
           </Button>
         ) : (
-          <Button variant="primary" onPress={recorder.start} isDisabled={busy || recorder.state === 'requesting'}>
+          <Button variant="primary" onHoverStart={wakeBackend} onFocus={wakeBackend} onPress={() => { wakeBackend(); recorder.start() }} isDisabled={busy || recorder.state === 'requesting'}>
             <Mic aria-hidden className="size-4" />
             {recorder.state === 'requesting' ? 'Allow microphone access' : 'Start recording'}
           </Button>
@@ -180,7 +184,7 @@ export default function InputCard({ onHover }) {
 
   return (
     <section aria-label="Choose audio to analyze" className="flex flex-col gap-6 rounded-2xl border border-border bg-surface p-5 sm:p-7">
-      <Tabs selectedKey={tab} onSelectionChange={key => setTab(String(key))} className="w-full">
+      <Tabs selectedKey={tab} onSelectionChange={key => { setTab(String(key)); if (key !== 'samples') wakeBackend() }} className="w-full">
         <Tabs.ListContainer>
           <Tabs.List aria-label="Audio source" className="w-full sm:w-auto">
             <Tabs.Tab className="whitespace-nowrap" id="samples">Sample calls<Tabs.Indicator /></Tabs.Tab>

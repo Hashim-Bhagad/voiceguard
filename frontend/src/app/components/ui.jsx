@@ -33,7 +33,7 @@ export function BackendPill({ className = '' }) {
   const view = {
     ready: { dot: 'bg-success', label: 'Model ready' },
     waking: { dot: 'bg-warning animate-pulse', label: 'Waking the model' },
-    idle: { dot: 'bg-warning animate-pulse', label: 'Waking the model' },
+    idle: { dot: 'bg-grey-700', label: 'Model asleep · wakes when you upload' },
     offline: { dot: 'bg-grey-700', label: 'Service offline · demos still work' },
   }[status]
   return (

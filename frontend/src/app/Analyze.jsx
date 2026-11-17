@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { wakeBackend } from '@/lib/backend'
 import { useAnalysis } from '@/lib/AnalysisContext'
 import { SCENARIOS, verdict } from '@/lib/analysis'
 import LineScope from '@/landing/LineScope'
@@ -42,6 +43,12 @@ function Line({ hovered }) {
 export default function Analyze() {
   const { status, data, reset, runAnalysis } = useAnalysis()
   const [hovered, setHovered] = useState(null)
+  // A file dragged in from the desktop is the earliest sign of an upload.
+  useEffect(() => {
+    const onDrag = e => { if (e.dataTransfer?.types?.includes('Files')) wakeBackend() }
+    window.addEventListener('dragenter', onDrag)
+    return () => window.removeEventListener('dragenter', onDrag)
+  }, [])
   const sample = () => runAnalysis('synthetic_clone', { instant: true })
   const fresh = () => { reset(); window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }) }
 

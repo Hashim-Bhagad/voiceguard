@@ -18,10 +18,10 @@ function ModelStatus() {
   const map = {
     ready: ['bg-success', 'Model ready'],
     waking: ['bg-warning animate-pulse', 'Waking the model'],
-    idle: ['bg-warning animate-pulse', 'Waking the model'],
+    idle: ['bg-grey-700', 'Model asleep · demos run instantly'],
     offline: ['bg-grey-700', 'Service offline · demos still work'],
   }
-  const [dot, text] = map[status] || map.idle
+  const [dot, text] = map[status] ?? map.idle
   return (
     <span className="label-mono hidden items-center gap-2 normal-case tracking-normal lg:inline-flex" role="status">
       <span className={`size-1.5 rounded-full ${dot}`} aria-hidden="true" />

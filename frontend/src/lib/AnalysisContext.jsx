@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { demoAnalysis, normalizeAnalysis, request } from './analysis'
-import { markBackendReady } from './backend'
+import { markBackendReady, wakeBackend } from './backend'
 
 const AnalysisContext = createContext(null)
 const HISTORY_KEY = 'tv-history'
@@ -51,6 +51,7 @@ export function AnalysisProvider({ children }) {
         result = demoAnalysis(input)
       } else {
         if (!(input instanceof Blob) || input.size === 0) throw new Error('Choose a non-empty audio recording.')
+        wakeBackend() // no-op if already awake; keeps the status pill honest
         if (input.size > 25 * 1024 * 1024) throw new Error('Please use a recording smaller than 25 MB.')
         const form = new FormData()
         const extension = input.type.includes('mp4') ? 'm4a' : input.type.includes('ogg') ? 'ogg' : input.type.includes('webm') ? 'webm' : 'wav'
