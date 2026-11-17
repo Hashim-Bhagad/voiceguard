@@ -350,6 +350,9 @@ def main() -> None:
                              "engines on a saved plan (runs in the clone env, which has NumPy 1.x "
                              "and so cannot import pyarrow/datasets); all: both in one process")
     parser.add_argument("--plan-dir", default=str(TRAINING_ROOT / "data" / "clone_plan"))
+    parser.add_argument("--new-plan", action="store_true",
+                        help="rebuild the plan even if one exists (by default it is reused, so a "
+                             "restarted job resumes the same clones)")
     args = parser.parse_args()
 
     load_local_env()
@@ -358,6 +361,9 @@ def main() -> None:
     plan_dir = Path(args.plan_dir).resolve()
     if args.stage == "synth":
         work, meta = load_plan(plan_dir)
+    elif args.stage == "plan" and (plan_dir / "plan.json").exists() and not args.new_plan:
+        print(f"reusing the existing plan in {plan_dir} (pass --new-plan to rebuild it)")
+        return
     else:
         work, meta = make_plan(args, token, data_root)
         if args.stage == "plan":
@@ -482,6 +488,16 @@ def synthesise(work, meta: dict, args, token: str | None, data_root: Path) -> No
     started = time.time()
     with tempfile.TemporaryDirectory() as tmp:
         for i, (lang, engine, speaker, (ref_wav, ref_rate, ref_text), text) in enumerate(work, 1):
+            stem, subdir = f"{lang}_{engine}_{i:05d}", f"{engine}/{lang}"
+            done_path = writer.audio_root / subdir / f"{safe_name(stem)}.wav"
+            if done_path.exists():  # made before a restart: keep it, do not regenerate
+                wav, rate = sf.read(str(done_path), dtype="float32", always_2d=False)
+                ok = writer.add(wav, int(rate), stem=stem, label="spoof", speaker_id=speaker,
+                                raw_speaker_id=True, language=lang, attack_family="clone",
+                                generator=GENERATOR[engine], noise_condition="clean", subdir=subdir)
+                stats[f"{engine}:ok" if ok else f"{engine}:rejected"] += 1
+                stats["resumed"] += 1
+                continue
             if engine in failed:
                 continue
             if engine not in engines:
@@ -504,10 +520,10 @@ def synthesise(work, meta: dict, args, token: str | None, data_root: Path) -> No
                 if stats[f"{engine}:rejected"] <= 5:
                     print(f"  ! {engine}/{lang} {speaker}: {problem}")
             else:
-                ok = writer.add(audio, OUTPUT_RATE[engine], stem=f"{lang}_{engine}_{i:05d}", label="spoof",
+                ok = writer.add(audio, OUTPUT_RATE[engine], stem=stem, label="spoof",
                                 speaker_id=speaker, raw_speaker_id=True, language=lang,
                                 attack_family="clone", generator=GENERATOR[engine],
-                                noise_condition="clean", subdir=f"{engine}/{lang}")
+                                noise_condition="clean", subdir=subdir)
                 stats[f"{engine}:ok" if ok else f"{engine}:rejected"] += 1
             if i % 25 == 0 or i == len(work):
                 rate = i / max(1e-6, time.time() - started)

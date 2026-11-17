@@ -99,6 +99,20 @@ def train(model: str = "xlsr_aasist", branch: str = "main", clones_per_lang: int
         HF_HOME=str(VOL / "hf-cache"),
     )
 
+    # Modal can preempt the GPU at any time and restart this function from the top.
+    # Commit the Volume every few minutes so clones and checkpoints made so far survive.
+    import threading
+
+    def _committer():
+        while True:
+            threading.Event().wait(300)
+            try:
+                volume.commit()
+            except Exception as exc:  # noqa: BLE001
+                print(f"  (volume commit failed: {exc})", flush=True)
+
+    threading.Thread(target=_committer, daemon=True).start()
+
     # --- data -------------------------------------------------------------------
     tar = VOL / "voiceguard-data.tar"
     stamp = VOL / "voiceguard-data.tar.sources"
@@ -114,13 +128,27 @@ def train(model: str = "xlsr_aasist", branch: str = "main", clones_per_lang: int
     if tar.exists():
         sh(f"tar -xf {tar} -C {training}", what="restoring the data tarball")
 
+    # Clone plan + generated clone audio live on the Volume, so a restarted job resumes
+    # where it stopped (make_clone_spoof.py reuses the plan and skips finished clips).
+    cache = VOL / "clone-cache"
+    for local, remote in ((Path(training, "data/clone_plan"), cache / "plan"),
+                          (Path(training, "data/audio/clones"), cache / "audio")):
+        remote.mkdir(parents=True, exist_ok=True)
+        if local.is_symlink():
+            local.unlink()
+        elif local.exists():
+            shutil.copytree(local, remote, dirs_exist_ok=True)
+            shutil.rmtree(local)
+        local.parent.mkdir(parents=True, exist_ok=True)
+        local.symlink_to(remote)
+
     sh("bash scripts/prepare_data.sh", cwd=training, what="data preparation")
 
     sources = "\n".join(sorted(f"{p.name} {p.stat().st_size}"
                                for p in Path(training, "data/candidates").glob("*.csv")))
     if not tar.exists() or not stamp.exists() or stamp.read_text() != sources:
         print("saving the processed data to the Volume ...", flush=True)
-        sh(f"tar -cf {tar}.part -C {training} data/audio data/candidates data/metadata.csv "
+        sh(f"tar -chf {tar}.part -C {training} data/audio data/candidates data/metadata.csv "
            f"data/metadata.build.json && mv {tar}.part {tar}", what="saving the data tarball")
         stamp.write_text(sources)
         volume.commit()
