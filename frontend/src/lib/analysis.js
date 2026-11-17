@@ -38,7 +38,8 @@ export function normalizeAnalysis(raw, name) {
   }
 }
 export const API_BASE = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '')
-export async function request(path, options = {}, timeoutMs = 30000) {
+// 90 s default: the first request after the backend wakes from sleep also loads the model.
+export async function request(path, options = {}, timeoutMs = 90000) {
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
   const response = await fetch(`${API_BASE}${path}`, { ...options, signal })
   if (!response.ok) throw new Error(`The analysis service returned ${response.status}. Please try again.`)

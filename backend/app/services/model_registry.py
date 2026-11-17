@@ -52,6 +52,26 @@ def _try_onnx(path: str):
         return None
 
 
+_digests: dict[tuple[str, int, float], str] = {}
+
+
+def _file_sha256(path: Path) -> str:
+    """SHA-256 of the model file, cached per (path, size, mtime).
+
+    /health is hit on every page load (it also wakes the server), and hashing a
+    several-hundred-MB model each time costs seconds on a small shared CPU.
+    """
+    stat = path.stat()
+    key = (str(path.resolve()), stat.st_size, stat.st_mtime)
+    if key not in _digests:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        _digests[key] = digest.hexdigest()
+    return _digests[key]
+
+
 def model_status() -> dict:
     """Provable, inspectable statement of what will actually score the audio.
 
@@ -76,11 +96,7 @@ def model_status() -> dict:
         return status
 
     if path.is_file():
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
-        status["model_sha256"] = digest.hexdigest()
+        status["model_sha256"] = _file_sha256(path)
         status["model_bytes"] = path.stat().st_size
 
     session = _try_onnx(settings.aasist_l_onnx)

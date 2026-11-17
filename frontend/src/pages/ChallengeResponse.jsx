@@ -37,7 +37,7 @@ export default function ChallengeResponse() {
       if (mode === 'demo') next = demoChallenge()
       else {
         const sid = data?.source === 'live' ? `?session_id=${encodeURIComponent(data.session_id)}` : ''
-        const response = await request(`/api/v1/challenge/create${sid}`, { method: 'POST', signal: controller.signal }, 8000)
+        const response = await request(`/api/v1/challenge/create${sid}`, { method: 'POST', signal: controller.signal }, 45000)
         const tokens = response.tokens || String(response.display_code || '').split(/\s+/)
         if (!response.session_id || tokens.length !== 4 || tokens.some(n => !/^\d$/.test(n))) throw new Error('The service returned an invalid challenge. Please retry.')
         next = { ...response, tokens, source: 'live', expiresAt: Date.now() + (response.expires_in_s || 30) * 1000 }

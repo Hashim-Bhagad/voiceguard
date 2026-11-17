@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+# Production image for Agent37 (https://www.agent37.com): CPU-only FastAPI + ONNX Runtime.
+# The 1.26 GB XLS-R + AASIST model is too big for Agent37's 1 GB build upload, so it is
+# not in the image: it lives on the instance's persistent disk (mounted at /root) and is
+# copied there once (rclone from Drive, or scp). Build context = backend/ without .env,
+# .venv or models/ (see the .dockerignore patterns in deploy notes).
+FROM python:3.11-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_LINK_MODE=copy
+
+# ffmpeg decodes browser recordings (WebM/Opus, MP4/AAC) and MP3/M4A uploads.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsndfile1 curl rclone \
+  && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /bin/uv
+
+# The app lives in /app: Agent37 mounts the persistent disk over the image user's
+# home directory (/root here), which would hide anything shipped there. The model is
+# deliberately ON that disk, so it survives restarts, sleep and image updates.
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --extra stt --no-install-project
+COPY app ./app
+
+ENV APP_ENV=production \
+    MODEL_BACKEND=aasist-l-onnx \
+    AASIST_L_ONNX=/root/models/xlsr-aasist-indic-v0.1.onnx \
+    SPOOF_OPERATING_THRESHOLD=0.05393 \
+    RETAIN_RAW_AUDIO=false \
+    LOG_LEVEL=info
+EXPOSE 8000
+CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

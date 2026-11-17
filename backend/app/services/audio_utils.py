@@ -9,6 +9,27 @@ import numpy as np
 log = logging.getLogger("voiceguard.audio")
 
 
+def _decode_with_ffmpeg(raw_bytes: bytes) -> np.ndarray | None:
+    """Decode any container/codec ffmpeg understands to 16 kHz mono float32, or None."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("ffmpeg"):
+        return None
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-nostdin", "-v", "error", "-i", "pipe:0", "-t", "600",
+             "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "pipe:1"],
+            input=raw_bytes, capture_output=True, timeout=60, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("ffmpeg decode failed: %s", exc)
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
+
+
 def decode_audio_to_16k_mono(raw_bytes: bytes) -> np.ndarray:
     """Decodes arbitrary incoming audio (WAV, PCM16, WebM/OGG via soundfile)
     into a canonical 1D float32 numpy array normalized to [-1.0, 1.0] at 16 kHz.
@@ -67,7 +88,14 @@ def decode_audio_to_16k_mono(raw_bytes: bytes) -> np.ndarray:
     except Exception:
         pass
 
-    # 3. Fallback: treat as raw PCM16
+    # 3. ffmpeg: browser recordings (WebM/Opus from Chrome, MP4/AAC from Safari) and
+    #    uploads like MP3/M4A, none of which libsndfile can read. Without this they fell
+    #    through to the raw-PCM guess below and the model scored noise.
+    audio = _decode_with_ffmpeg(raw_bytes)
+    if audio is not None:
+        return audio
+
+    # 4. Fallback: treat as raw PCM16
     try:
         usable_bytes = len(raw_bytes) - (len(raw_bytes) % 2)
         if usable_bytes > 0:
