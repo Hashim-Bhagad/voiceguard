@@ -1,3 +1,269 @@
-:root{font-family:'Space Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;color:#edf1ef;background:#0a0d0e;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;color-scheme:dark;--bg:#0a0d0e;--panel:#111617;--raised:#171d1f;--border:#252d2f;--text:#edf1ef;--muted:#9aa6a7;--accent:#a5ebce;--accent-bg:#a5ebce12;--danger:#f39b91;--warning:#e6c17a;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:16px;line-height:1.55}
-*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button,a,input,select{-webkit-tap-highlight-color:transparent}button,a{touch-action:manipulation}button{cursor:pointer}a{color:inherit;text-decoration:none}button:disabled{opacity:.45;cursor:not-allowed}h1,h2,h3,p{margin:0}h1,h2,h3{line-height:1.15;font-weight:500}h1{letter-spacing:-1.8px}h2{letter-spacing:-.7px}svg{flex-shrink:0}button{color:inherit}::selection{background:#a5ebce;color:#0a0d0e}:focus-visible{outline:2px solid var(--accent);outline-offset:5px}img{max-width:100%}html{scroll-behavior:smooth;scroll-padding-top:90px}#root{min-height:100svh}button,input,select{min-height:42px}.muted{color:var(--muted)}.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}.small{font-size:.8125rem}.eyebrow{display:block;color:var(--accent);font-family:var(--mono);font-size:.6875rem;letter-spacing:1.5px;line-height:1.7}.skip-link{position:fixed;top:-100px;left:16px;z-index:1000;padding:12px;background:var(--accent);color:var(--bg)}.skip-link:focus{top:10px}
-@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@layer theme, base, components, utilities;
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/* ------------------------------------------------------------------------- */
+/* Fonts: Geist for text, Geist Mono for data, Geist Pixel for big readouts. */
+/* ------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Pixel Grid";
+  src: url("/fonts/GeistPixel-Grid.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Pixel";
+  src: url("/fonts/GeistPixel-Square.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* ------------------------------------------------------------------------- */
+/* "Signal" theme: true black, one amber accent, status hues kept >= 27deg    */
+/* (OKLCH) away from it so amber never means "caution".                       */
+/* ------------------------------------------------------------------------- */
+@layer theme {
+  [data-theme="signal"] {
+    color-scheme: dark;
+
+    /* primitives */
+    --white: oklch(1 0 0);
+    --black: oklch(0 0 0);
+    --ink-0: oklch(0.115 0 0);   /* #050505 page */
+    --ink-1: oklch(0.150 0 0);   /* raised surface */
+    --ink-2: oklch(0.183 0 0);   /* overlay */
+    --ink-3: oklch(0.219 0 0);   /* control fill */
+    --ink-4: oklch(0.262 0 0);   /* control hover / segment */
+    --ink-line: oklch(0.241 0 0);
+    --grey-500: oklch(0.648 0 0);  /* 6.2:1 on page: secondary text */
+    --grey-700: oklch(0.477 0 0);  /* 3.1:1: decorative only, never text */
+    --paper: oklch(0.946 0 0);     /* #EDEDED primary text */
+    --amber-500: oklch(0.817 0.164 75.8);  /* #FFB224 */
+    --amber-600: oklch(0.724 0.187 48.9);  /* #FF7A1A, hot top of the meter */
+    --amber-ink: oklch(0.184 0.038 85.8);  /* text on amber, 10.4:1 */
+    --red-500: oklch(0.673 0.215 25);      /* #FF4D4D clone / high risk */
+    --yellow-400: oklch(0.913 0.151 102.8);/* #F5E663 review needed */
+    --mint-400: oklch(0.801 0.088 173.3);  /* #7FD1B9 genuine / low risk */
+
+    --spacing: 0.25rem;
+    --border-width: 1px;
+    --field-border-width: 1px;
+    --disabled-opacity: 0.45;
+    --ring-offset-width: 2px;
+    --cursor-interactive: pointer;
+    --cursor-disabled: not-allowed;
+    --radius: 0.625rem;
+    --field-radius: 0.625rem;
+
+    --background: var(--ink-0);
+    --foreground: var(--paper);
+    --surface: var(--ink-1);
+    --surface-foreground: var(--paper);
+    --overlay: var(--ink-2);
+    --overlay-foreground: var(--paper);
+    --muted: var(--grey-500);
+    --default: var(--ink-3);
+    --default-foreground: var(--paper);
+    --segment: var(--ink-4);
+    --segment-foreground: var(--paper);
+
+    --accent: var(--amber-500);
+    --accent-foreground: var(--amber-ink);
+    --success: var(--mint-400);
+    --success-foreground: var(--ink-0);
+    --warning: var(--yellow-400);
+    --warning-foreground: var(--ink-0);
+    --danger: var(--red-500);
+    --danger-foreground: var(--ink-0);
+
+    --field-background: var(--ink-2);
+    --field-foreground: var(--paper);
+    --field-placeholder: var(--grey-500);
+    --field-border: var(--ink-line);
+
+    --border: color-mix(in oklab, var(--white) 9%, transparent);
+    --separator: color-mix(in oklab, var(--white) 7%, transparent);
+    --focus: var(--amber-500);
+    --link: var(--amber-500);
+
+    --scrollbar-thumb: color-mix(in oklch, var(--paper) 14%, transparent);
+    --scrollbar-track: transparent;
+    --scrollbar-gutter: auto;
+    --scrollbar-width: thin;
+    --scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    --scrollbar: var(--scrollbar-thumb);
+
+    --surface-shadow: 0 0 0 0 transparent inset;
+    --overlay-shadow: 0 24px 48px -12px oklch(0 0 0 / 0.7), 0 2px 8px oklch(0 0 0 / 0.5);
+    --field-shadow: 0 0 0 0 transparent inset;
+    --skeleton-animation: shimmer;
+    --tooltip-delay: 600ms;
+    --tooltip-close-delay: 200ms;
+
+    /* Glass: used on two layers only, the navigation and the verdict card. */
+    --glass-fill: color-mix(in oklab, var(--white) 4.5%, transparent);
+    --glass-edge: color-mix(in oklab, var(--white) 10%, transparent);
+    --glass-highlight: color-mix(in oklab, var(--white) 9%, transparent);
+  }
+}
+
+@theme inline {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-pixel: "Geist Pixel", "Geist Mono", ui-monospace, monospace;
+  /* Headlines: the grid cut, each pixel split like an LED panel seen up close. */
+  --font-display: "Geist Pixel Grid", "Geist Pixel", "Geist Mono", ui-monospace, monospace;
+  --color-ink-0: var(--ink-0);
+  --color-ink-1: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-amber-hot: var(--amber-600);
+  --color-grey-700: var(--grey-700);
+  --color-paper: var(--paper);
+  --color-hairline: var(--separator);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Base                                                                      */
+/* ------------------------------------------------------------------------- */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-padding-block-start: 88px;
+    background: var(--background);
+  }
+  body {
+    min-height: 100dvh;
+    font-feature-settings: "ss01", "cv11";
+  }
+  ::selection { background: var(--accent); color: var(--accent-foreground); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Shared surfaces                                                           */
+/* ------------------------------------------------------------------------- */
+@layer components {
+  .glass {
+    background: var(--glass-fill);
+    border: 1px solid var(--glass-edge);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), 0 30px 60px -30px oklch(0 0 0 / 0.8);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+  /* Film grain over the whole page, 3% so it reads as texture, not noise. */
+  .grain::after {
+    content: "";
+    position: fixed;
+    inset: -50%;
+    z-index: 60;
+    pointer-events: none;
+    opacity: 0.12;
+    mix-blend-mode: overlay; /* overlay on pure black stays black: texture only where there is light */
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .label-mono {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+/* Hero instrument panel: frosted glass the meter stands on. Vertical fluting and a lit
+   top edge make it read as a physical slab rather than a blurred rectangle. */
+@layer components {
+  .hero-glass {
+    background:
+      repeating-linear-gradient(90deg, color-mix(in oklab, var(--white) 3.5%, transparent) 0 1px, transparent 1px 14px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--white) 7%, transparent), color-mix(in oklab, var(--white) 2%, transparent) 40%, transparent);
+    border: 1px solid var(--glass-edge);
+    border-bottom: 0;
+    box-shadow: inset 0 1px 0 color-mix(in oklab, var(--white) 16%, transparent), 0 -30px 80px -40px color-mix(in oklab, var(--accent) 30%, transparent);
+    backdrop-filter: blur(26px) saturate(150%);
+    -webkit-backdrop-filter: blur(26px) saturate(150%);
+  }
+}
+
+/* Phone mockup meter: square cells stacked by a repeating gradient, bouncing on its own beat. */
+@layer components {
+  .phone-meter-col {
+    width: 7px;
+    height: var(--h);
+    background: repeating-linear-gradient(to top, var(--accent) 0 5px, transparent 5px 7px);
+    opacity: 0.35;
+    transform-origin: bottom;
+    transform: scaleY(0.25);
+    transition: opacity 0.4s;
+  }
+  .phone-meter-col.is-live {
+    opacity: 0.9;
+    animation: phone-meter 0.9s steps(6) infinite alternate;
+    animation-delay: var(--d);
+  }
+  @keyframes phone-meter { from { transform: scaleY(0.2); } to { transform: scaleY(1); } }
+  @media (prefers-reduced-motion: reduce) { .phone-meter-col.is-live { animation: none; transform: scaleY(0.7); } }
+}
+
+/* Reduced motion: status pulses hold still. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse { animation: none; }
+}
+
+@keyframes loader-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Demo cards: three pixel columns that play while a call runs. */
+.eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; flex-shrink: 0; }
+.eq > span {
+  width: 3px; height: 100%;
+  background: repeating-linear-gradient(to top, currentColor 0 2px, transparent 2px 3px);
+  color: var(--grey-700);
+  transform-origin: bottom; transform: scaleY(0.35);
+  transition: color 0.3s, transform 0.3s;
+}
+.eq > span:nth-child(2) { transform: scaleY(0.6); }
+.group:hover .eq > span { color: var(--accent); }
+.group:hover .eq > span:nth-child(1) { transform: scaleY(0.7); }
+.group:hover .eq > span:nth-child(2) { transform: scaleY(1); }
+.group:hover .eq > span:nth-child(3) { transform: scaleY(0.5); }
+.eq.is-live > span { color: var(--accent); animation: eq-bounce 0.7s steps(4) infinite alternate; }
+.eq.is-live > span:nth-child(2) { animation-delay: -0.25s; }
+.eq.is-live > span:nth-child(3) { animation-delay: -0.5s; }
+@keyframes eq-bounce { from { transform: scaleY(0.25); } to { transform: scaleY(1); } }
+
+.demo-sweep {
+  background: linear-gradient(100deg, transparent 30%, color-mix(in oklab, var(--accent) 14%, transparent) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: demo-sweep 1.1s linear infinite;
+}
+@keyframes demo-sweep { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .eq.is-live > span { animation: none; transform: scaleY(0.8); }
+  .demo-sweep { animation: none; opacity: 0.5; }
+}
