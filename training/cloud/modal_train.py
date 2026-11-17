@@ -1,8 +1,11 @@
 """Run the full VoiceGuard GPU pipeline as one Modal job (an alternative to the Colab notebook).
 
-    modal run --detach training/cloud/modal_train.py              # data + clones + XLS-R training
-    modal run --detach training/cloud/modal_train.py --model aasist_l
-    modal app logs voiceguard-train                               # follow a detached run
+    modal deploy training/cloud/modal_train.py                    # once (and after edits)
+    python -c "import modal; modal.Function.from_name('voiceguard-train', 'train').spawn()"
+    modal app logs voiceguard-train                               # follow the run
+
+    # or, without deploying (spawns and returns; the run continues on Modal):
+    modal run --detach training/cloud/modal_train.py [--model aasist_l]
     modal volume get voiceguard outputs/xlsr_aasist_v2 ./runs/    # fetch results
 
 What it does, in a fresh container with an L4, A10G or T4 GPU (whichever is free first):
@@ -162,7 +165,10 @@ def train(model: str = "xlsr_aasist", branch: str = "main", clones_per_lang: int
 @app.local_entrypoint()
 def main(model: str = "xlsr_aasist", branch: str = "main", clones_per_lang: int = 200,
          make_clones: bool = True, epochs: int = 0):
-    path = train.remote(model=model, branch=branch, clones_per_lang=clones_per_lang,
-                        make_clones=make_clones, epochs=epochs)
-    print(f"\ndone: results in the 'voiceguard' Volume at {path}")
-    print(f"  modal volume get voiceguard {path.removeprefix('/vol/')} ./runs/")
+    # spawn, not remote: a blocking .remote() call is cancelled if this local client dies
+    # (an expired auth token killed a 3-hour run that way), even under --detach.
+    call = train.spawn(model=model, branch=branch, clones_per_lang=clones_per_lang,
+                       make_clones=make_clones, epochs=epochs)
+    print(f"\nstarted {call.object_id}. It runs on Modal without this terminal.")
+    print(f"  logs:    modal app logs {APP_NAME}")
+    print("  results: modal volume get voiceguard outputs/<model>_v2 ./runs/")
