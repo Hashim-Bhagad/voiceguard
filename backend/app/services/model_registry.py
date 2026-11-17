@@ -129,6 +129,18 @@ def _repeat_pad(waveform: np.ndarray, samples: int = AASIST_L_SAMPLES) -> np.nda
     return np.tile(waveform, repeats)[:samples].astype(np.float32, copy=False)
 
 
+def _window_starts(n_samples: int, max_windows: int = 8) -> list[int]:
+    """Sample offsets of the windows that cover a clip of ``n_samples``."""
+    if n_samples <= AASIST_L_SAMPLES:
+        return [0]
+    stride = AASIST_L_SAMPLES // 2  # 50% overlap
+    starts = list(range(0, n_samples - AASIST_L_SAMPLES + 1, stride))
+    if len(starts) > max_windows:  # evenly subsample, always keeping both ends
+        picks = np.linspace(0, len(starts) - 1, max_windows).round().astype(int)
+        starts = [starts[i] for i in dict.fromkeys(picks.tolist())]
+    return starts
+
+
 def _aasist_windows(waveform_16k: np.ndarray, max_windows: int = 8) -> np.ndarray:
     """Return [n, 64600] windows covering the clip.
 
@@ -142,12 +154,7 @@ def _aasist_windows(waveform_16k: np.ndarray, max_windows: int = 8) -> np.ndarra
     )
     if len(waveform) <= AASIST_L_SAMPLES:
         return _repeat_pad(waveform)[None, :]
-
-    stride = AASIST_L_SAMPLES // 2  # 50% overlap
-    starts = list(range(0, len(waveform) - AASIST_L_SAMPLES + 1, stride))
-    if len(starts) > max_windows:  # evenly subsample, always keeping both ends
-        picks = np.linspace(0, len(starts) - 1, max_windows).round().astype(int)
-        starts = [starts[i] for i in dict.fromkeys(picks.tolist())]
+    starts = _window_starts(len(waveform), max_windows)
     return np.stack([waveform[s:s + AASIST_L_SAMPLES] for s in starts])
 
 
@@ -200,6 +207,37 @@ def _calibration_offset() -> float:
     return float(np.log(threshold / (1.0 - threshold)))
 
 
+def score_spoof_detailed(waveform_16k: np.ndarray, sample_rate: int = 16000) -> tuple[float, list[dict]]:
+    """Clip score plus the per-window scores it was aggregated from.
+
+    The windows are the ones ``score_spoof`` already runs, so the timeline costs no
+    extra inference. Each segment is ``{"start_s", "end_s", "spoof_score"}`` with the
+    same calibration as the clip score. When the neural model is not running the
+    heuristic fallback has no windows, and segments is empty rather than invented.
+    """
+    settings = get_settings()
+    if settings.model_backend == "aasist-l-onnx":
+        session = _try_onnx(settings.aasist_l_onnx)
+        if session is not None:
+            waveform = np.asarray(waveform_16k, dtype=np.float32).reshape(-1)
+            windows = _aasist_windows(waveform)
+            output = session.run(None, {session.get_inputs()[0].name: windows})[0]
+            logits = np.asarray(output, dtype=np.float64).reshape(-1)
+            offset = _calibration_offset()
+            starts = _window_starts(len(waveform))
+            duration = len(waveform) / sample_rate
+            segments = [
+                {
+                    "start_s": round(start / sample_rate, 2),
+                    "end_s": round(min(duration, (start + AASIST_L_SAMPLES) / sample_rate), 2),
+                    "spoof_score": round(_sigmoid(float(logit) - offset), 4),
+                }
+                for start, logit in zip(starts, logits)
+            ]
+            return _sigmoid(_aggregate(logits) - offset), segments
+    return _heuristic_score(waveform_16k), []
+
+
 def score_spoof(waveform_16k: np.ndarray) -> float:
     """Return calibrated-model input evidence in [0, 1], where higher is more spoof-like.
 
@@ -208,14 +246,10 @@ def score_spoof(waveform_16k: np.ndarray) -> float:
     exactly preserves the two-class softmax spoof score; otherwise the score is
     shifted so that threshold reads as 0.5 (see _calibration_offset).
     """
-    settings = get_settings()
-    if settings.model_backend == "aasist-l-onnx":
-        session = _try_onnx(settings.aasist_l_onnx)
-        if session is not None:
-            windows = _aasist_windows(waveform_16k)
-            output = session.run(None, {session.get_inputs()[0].name: windows})[0]
-            logits = np.asarray(output, dtype=np.float64).reshape(-1)
-            return _sigmoid(_aggregate(logits) - _calibration_offset())
+    return score_spoof_detailed(waveform_16k)[0]
+
+
+def _heuristic_score(waveform_16k: np.ndarray) -> float:
     if waveform_16k.size == 0:
         return 0.0
     # Development-only fallback: never describe this heuristic as model output.

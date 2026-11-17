@@ -8,28 +8,12 @@ import logging
 from typing import Any
 import numpy as np
 
+from app.services import linguistic
+
 log = logging.getLogger("voiceguard.explainability")
 
-# Linguistic threat categorization mapping
-THREAT_CATEGORIES = {
-    "urgency": [
-        "immediately", "urgent", "right away", "turant", "abhi", "lagaatar", 
-        "jaldi", "लगेच", "तात्काळ", "உடனே", "உடனடி"
-    ],
-    "executive_impersonation": [
-        "ceo", "director", "manager", "boss", "official", "headquarters", 
-        "bank official", "authorized", "compliance officer"
-    ],
-    "secrecy_isolation": [
-        "don't tell anyone", "do not tell", "secret", "confidential", 
-        "kisi ko mat batana", "secret rakh", "chup chap", "ரகசியம்", "गुप्त"
-    ],
-    "financial_coercion": [
-        "transfer now", "transfer immediately", "wire transfer", "transfer kar", 
-        "otp", "pin", "card number", "cvv", "kyc update", "account blocked",
-        "खाता ब्लॉक", "परीक्षन", "ओटीपी"
-    ],
-}
+# Categories come from the lexicon itself (linguistic.LEXICON), so every flagged
+# term has the category it was written with.
 
 
 def extract_pitch_jitter(audio_16k: np.ndarray, sample_rate: int = 16000) -> float:
@@ -124,24 +108,17 @@ def categorize_linguistic_hits(hits: list[str]) -> list[dict[str, str]]:
     """Categorize matched keywords into explainable fraud/coercion markers."""
     categorized = []
     seen = set()
-
     for hit in hits:
-        hit_lower = hit.lower().strip()
-        matched_cat = "General Fraud Indicator"
-
-        for cat_key, words in THREAT_CATEGORIES.items():
-            if any(w in hit_lower for w in words):
-                matched_cat = cat_key.replace("_", " ").title()
-                break
-
-        if hit_lower not in seen:
-            seen.add(hit_lower)
-            categorized.append({
-                "keyword": hit,
-                "category": matched_cat,
-                "description": f"Triggered by '{hit}' ({matched_cat})"
-            })
-
+        key = hit.lower().strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        category = linguistic.category_of(hit)
+        categorized.append({
+            "keyword": hit,
+            "category": category,
+            "description": f"Triggered by '{hit}' ({category})",
+        })
     return categorized
 
 

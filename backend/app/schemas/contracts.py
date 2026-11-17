@@ -52,6 +52,9 @@ class VerifyResponse(Telemetry):
     final_risk_score: float = 0.0
     transcript: str = ""
     lang_detected: str = "auto"
+    # Additive (v1-compatible): where lang_detected came from, so a client never
+    # shows an echoed hint as a detection. "whisper" | "hint" | "none".
+    lang_source: Literal["whisper", "hint", "none"] = "none"
     explainability: dict = Field(default_factory=dict)
     fusion_breakdown: dict = Field(default_factory=dict)
     privacy_attestation: dict = Field(default_factory=lambda: {

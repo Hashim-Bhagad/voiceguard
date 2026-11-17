@@ -26,11 +26,17 @@ async def verify_file(
 
     # 2. Transcribe via Groq Whisper if transcript was not manually supplied
     final_transcript = transcript.strip()
+    hinted = lang_hint if lang_hint and not lang_hint.startswith("auto") else None
+    language = {"language": hinted or "auto", "language_source": "hint" if hinted else "none"}
     if not final_transcript and raw_bytes:
-        final_transcript = stt.transcribe_audio(raw_bytes, filename=file.filename or "input.wav", lang_hint=lang_hint)
+        heard = stt.transcribe_audio_detailed(raw_bytes, filename=file.filename or "input.wav", lang_hint=lang_hint)
+        final_transcript = heard["text"]
+        language = {"language": heard["language"], "language_source": heard["language_source"]}
 
     # 3. Acoustic Spoof Detection via AASIST-L ONNX
-    spoof_score = float(model_registry.score_spoof(audio)) if has_audio else 0.0
+    # Per-window scores come from the same inference as the clip score.
+    spoof_score, segments = model_registry.score_spoof_detailed(audio) if has_audio else (0.0, [])
+    spoof_score = float(spoof_score)
 
     # 4. Multilingual Linguistic Urgency Analysis
     ling_score, matched_flags = linguistic.score_text(final_transcript)
@@ -120,10 +126,11 @@ async def verify_file(
         model_ver=model_registry.model_version(),
         policy_ver=s.policy_ver,
         session_id=session_id,
-        segments=[],
+        segments=segments,
         flags=matched_flags,
         challenge_triggered=challenge_triggered,
-        lang_detected=lang_hint,
+        lang_detected=language["language"],
+        lang_source=language["language_source"],
         explainability=forensic_report,
         fusion_breakdown=fusion_breakdown,
         privacy_attestation={
