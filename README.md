@@ -184,6 +184,20 @@ python scripts/inspect_finetune.py --config configs/xlsr_aasist_gpu.yaml --finet
 
 ---
 
+## Deployment
+
+Live demo: **https://voiceguard-pink.vercel.app** (frontend on Vercel, backend on [Agent37](https://www.agent37.com)).
+
+| Part | Where | Notes |
+|---|---|---|
+| Frontend (React/Vite) | Vercel, project root `frontend/` | Redeploys on every push to `main`. `VITE_API_BASE_URL` points at the backend. |
+| Backend (FastAPI + ONNX Runtime) | Agent37, 2 vCPU / 4 GB / 12 GB disk, auto-sleep after 15 min idle | Image from [`backend/Dockerfile.agent37`](backend/Dockerfile.agent37). It serves the full XLS-R + AASIST model (`xlsr-aasist-indic-v0.1`). |
+
+* **Model on disk.** The 1.26 GB model is larger than Agent37's 1 GB build upload, so it sits on the instance's persistent disk at `/root/models/`, outside the image, and survives sleep, restarts and image updates. It was copied there once from the training run's Drive folder.
+* **Why the full model.** An int8-quantised export was 3.5x smaller, but on the same 332 clips it scored 5.42% EER against 4.22%, caught 13 of 16 of the team's real voice clones against 16 of 16, and was no faster on CPU.
+* **Secrets.** `GROQ_API_KEY` (speech-to-text) and `CORS_ORIGINS` (the Vercel domain only) are instance environment variables, never baked into the image.
+* **Cold starts.** The page pings `/api/v1/health` on load to wake a sleeping backend. The first request after a sleep can take 10-30 s; after that, a clip takes about 3-9 s including transcription.
+
 ## Repository layout
 
 ```text
