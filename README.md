@@ -187,6 +187,7 @@ python scripts/inspect_finetune.py --config configs/xlsr_aasist_gpu.yaml --finet
 ## Deployment
 
 Live demo: **https://voiceguard-pink.vercel.app** (frontend on Vercel, backend on [Agent37](https://www.agent37.com)).
+Model weights (ONNX, CC-BY-NC-4.0): **[Hashim-Bhagad/voiceguard-xlsr-aasist-indic](https://huggingface.co/Hashim-Bhagad/voiceguard-xlsr-aasist-indic)** on Hugging Face, with a model card, evaluation and `inference.py`.
 
 | Part | Where | Notes |
 |---|---|---|
