@@ -88,6 +88,7 @@ def train(model: str = "xlsr_aasist", branch: str = "main", clones_per_lang: int
     import yaml
 
     repo, training = "/root/vg", "/root/vg/training"
+    shutil.rmtree(repo, ignore_errors=True)  # Modal may reuse a warm container from an earlier call
     sh(f"git clone -q --depth 1 --branch {branch} {REPO_URL} {repo}")
     sha = subprocess.check_output(["git", "-C", repo, "rev-parse", "--short", "HEAD"], text=True).strip()
     print(f"code at {branch} @ {sha}", flush=True)
