@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/re
 import NumberFlow from '@number-flow/react'
 import { ArrowRight, Check, Pause, ShieldAlert, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { SCENARIOS, verdict } from '../lib/analysis'
+import { haptic } from '../lib/touch'
 import { useAnalysis } from '../lib/AnalysisContext'
 import { MaskLines, BlurIn } from './Reveal'
 import LineScope from './LineScope'
@@ -150,6 +151,15 @@ export default function DemoSection() {
   // The verdict lands with a small knock on the panel, without remounting the scope.
   const [panel, animatePanel] = useAnimate()
   const resultId = result?.session_id
+  // A user-picked call also lands as a haptic pattern on phones that support it:
+  // one tap for low risk, two for review, three for high. Auto-play never buzzes.
+  const autoRef = useRef(auto)
+  useEffect(() => { autoRef.current = auto })
+  const resultTone = result ? verdict(result).tone : null
+  useEffect(() => {
+    if (!resultId || autoRef.current) return
+    haptic(resultTone === 'high' ? [14, 70, 14, 70, 22] : resultTone === 'caution' ? [12, 80, 12] : 10)
+  }, [resultId, resultTone])
   useEffect(() => {
     if (!resultId || reduce || !panel.current) return
     animatePanel(panel.current, { scale: [0.985, 1] }, { type: 'spring', stiffness: 380, damping: 18 })

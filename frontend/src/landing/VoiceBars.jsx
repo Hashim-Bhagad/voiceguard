@@ -30,6 +30,14 @@ const VoiceBars = forwardRef(function VoiceBars(
     // Entrance: collapse to a flat line, then grow back over `ms`.
     flatten() { api.current.rise = 0; api.current.riseTarget = 0 },
     rise(ms = 900) { api.current.riseTarget = 1; api.current.riseMs = ms },
+    // Touch: the parent steers the bell from a drag or the phone's tilt (0..1 each).
+    steer(x, y = 0.45) {
+      const p = api.current.pointer
+      if (!p) return
+      p.x = Math.min(1, Math.max(0, x)); p.y = Math.min(1, Math.max(0, y))
+      p.active = true; p.lastMove = performance.now()
+      api.current.redraw?.()
+    },
   }))
 
   useEffect(() => {
@@ -47,6 +55,7 @@ const VoiceBars = forwardRef(function VoiceBars(
     let w = 0, h = 0, dpr = 1, cols = 0, rows = 0, cell = 0, gap = 0, ox = 0
     let level = [], peak = [], peakHold = []
     const pointer = { x: -1, y: 0.5, active: false, lastMove: 0 }
+    api.current.pointer = pointer
     let side = null
     let visible = true, raf = 0, last = performance.now(), t = 0
 
@@ -188,6 +197,7 @@ const VoiceBars = forwardRef(function VoiceBars(
       if (reduced) stillFrame()
     }
 
+    api.current.redraw = reduced ? () => stillFrame() : null
     layout()
     if (reduced) { pointer.x = 0.25; stillFrame() } else start()
 

@@ -267,3 +267,35 @@
   .eq.is-live > span { animation: none; transform: scaleY(0.8); }
   .demo-sweep { animation: none; opacity: 0.5; }
 }
+
+/* Touch: the tilt chip's little phone rocks side to side until tilt is switched on. */
+.tilt-phone {
+  width: 8px; height: 13px; flex-shrink: 0;
+  border: 1.5px solid currentColor; border-radius: 2.5px;
+  box-shadow: inset 0 -2px 0 -0.5px currentColor;
+}
+.tilt-phone.is-idle { animation: tilt-rock 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes tilt-rock {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(-22deg); }
+  45% { transform: rotate(18deg); }
+  60% { transform: rotate(0); }
+}
+
+/* Touch: presses give way under the finger, since there is no hover to preview them.
+   In the base layer and on the `scale` property, so components' own transitions and
+   transforms (utilities, motion) still win. */
+@layer base {
+  @media (hover: none) and (pointer: coarse) {
+    button:not(:disabled), [role="button"], [role="tab"] {
+      transition: scale 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:not(:disabled):active, [role="button"]:active, [role="tab"]:active { scale: 0.97; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tilt-phone.is-idle { animation: none; }
+  button:not(:disabled):active, [role="button"]:active, [role="tab"]:active { scale: none; }
+}

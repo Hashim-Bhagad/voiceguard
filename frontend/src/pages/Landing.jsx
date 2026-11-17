@@ -12,6 +12,7 @@ import CloseSection from '../landing/CloseSection'
 import AsciiFooter from '../landing/AsciiFooter'
 import LanguagesSection from '../landing/LanguagesSection'
 import PixelTrail from '../landing/PixelTrail'
+import ScrollMeter from '../landing/ScrollMeter'
 
 export default function Landing() {
   useLenis()
@@ -24,6 +25,7 @@ export default function Landing() {
     <div className="grain relative min-h-dvh bg-background text-foreground">
       <Entrance onReveal={onReveal} />
       <PixelTrail />
+      <ScrollMeter />
       <Nav />
       <main id="main-content" tabIndex={-1} className="relative z-[1] focus:outline-none">
         <Hero revealed={revealed} entrancePlaying={entrancePlaying} />
